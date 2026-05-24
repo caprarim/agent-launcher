@@ -7,8 +7,8 @@ import { AgentConfig, RunningAgent, LogEntry } from '../shared/types';
 const MAX_AGENTS = 10;
 
 const defaultAgents: AgentConfig[] = [
-  { type: 'codex',  count: 1, command: 'codex' },
-  { type: 'claude', count: 1, command: 'claude' },
+  { type: 'codex',  count: 1, command: 'codex --approval-mode full-auto' },
+  { type: 'claude', count: 1, command: 'claude --dangerously-skip-permissions' },
   { type: 'gemini', count: 1, command: 'gemini' },
 ];
 
