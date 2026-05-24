@@ -1,24 +1,25 @@
 {
   "name": "agent-launcher",
   "version": "1.0.0",
-  "description": "Launch multiple AI coding agents with one click",
+  "description": "Launch multiple AI coding agents with split terminals",
   "main": "dist/main/main.js",
   "scripts": {
-    "install": "npm install",
+    "postinstall": "electron-rebuild -f -w node-pty || echo 'Note: native rebuild skipped (run on target machine)'",
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
     "dev:renderer": "webpack --config webpack.renderer.config.js --watch --mode development",
     "dev:main": "wait-on dist/renderer/index.html && electron .",
-    "dev:electron": "NODE_ENV=development electron .",
     "build:renderer": "webpack --config webpack.renderer.config.js --mode production",
     "build:main": "webpack --config webpack.main.config.js --mode production",
     "build": "npm run build:main && npm run build:renderer",
     "start": "npm run build && electron .",
+    "rebuild": "electron-rebuild -f -w node-pty",
     "package": "npm run build && electron-builder"
   },
-  "keywords": ["electron", "ai", "agents", "launcher"],
+  "keywords": ["electron", "ai", "agents", "launcher", "terminal"],
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "@types/node": "^20.0.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
@@ -35,18 +36,20 @@
     "webpack-cli": "^5.0.0"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0",
     "react": "^18.0.0",
     "react-dom": "^18.0.0"
   },
   "build": {
     "appId": "com.agentlauncher.app",
     "productName": "Agent Launcher",
-    "directories": {
-      "output": "release"
-    },
-    "files": [
-      "dist/**/*",
-      "package.json"
-    ]
+    "asar": true,
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "node_modules/**/*", "package.json"],
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg" },
+    "linux": { "target": "AppImage" }
   }
 }

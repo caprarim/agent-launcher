@@ -1,21 +1,44 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { LaunchConfig, RunningAgent, LogEntry } from '../shared/types';
+import { PtyCreateOptions, PtyCreateResult } from '../shared/types';
 
-// Expose safe IPC methods to the renderer process
+// Per-agent callbacks registered from TerminalPanel components
+const dataCallbacks = new Map<string, (data: string) => void>();
+const exitCallbacks = new Map<string, (code: number) => void>();
+
+// Single global IPC listeners that dispatch by id
+ipcRenderer.on('pty:data', (_event, { id, data }: { id: string; data: string }) => {
+  dataCallbacks.get(id)?.(data);
+});
+ipcRenderer.on('pty:exit', (_event, { id, exitCode }: { id: string; exitCode: number }) => {
+  exitCallbacks.get(id)?.(exitCode);
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
-  launchAgents: (config: LaunchConfig) => ipcRenderer.invoke('launch-agents', config),
-  stopAllAgents: () => ipcRenderer.invoke('stop-all-agents'),
-  getRunningAgents: () => ipcRenderer.invoke('get-running-agents'),
-  pickDirectory: () => ipcRenderer.invoke('pick-directory'),
+  // PTY lifecycle
+  ptyCreate: (opts: PtyCreateOptions): Promise<PtyCreateResult> =>
+    ipcRenderer.invoke('pty:create', opts),
 
-  onLogEntry: (callback: (entry: LogEntry) => void) => {
-    ipcRenderer.on('log-entry', (_event, entry) => callback(entry));
+  ptyWrite: (id: string, data: string): void =>
+    ipcRenderer.send('pty:write', { id, data }),
+
+  ptyResize: (id: string, cols: number, rows: number): void =>
+    ipcRenderer.send('pty:resize', { id, cols, rows }),
+
+  ptyKill: (id: string): Promise<void> =>
+    ipcRenderer.invoke('pty:kill', id),
+
+  // Subscribe to output from a specific PTY; returns unsubscribe fn
+  onPtyData: (id: string, cb: (data: string) => void): (() => void) => {
+    dataCallbacks.set(id, cb);
+    return () => dataCallbacks.delete(id);
   },
-  onAgentUpdate: (callback: (agent: RunningAgent) => void) => {
-    ipcRenderer.on('agent-update', (_event, agent) => callback(agent));
+
+  onPtyExit: (id: string, cb: (code: number) => void): (() => void) => {
+    exitCallbacks.set(id, cb);
+    return () => exitCallbacks.delete(id);
   },
-  removeAllListeners: () => {
-    ipcRenderer.removeAllListeners('log-entry');
-    ipcRenderer.removeAllListeners('agent-update');
-  },
+
+  // Directory picker
+  pickDirectory: (): Promise<string | null> =>
+    ipcRenderer.invoke('pick-directory'),
 });

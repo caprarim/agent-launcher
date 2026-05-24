@@ -1,256 +1,122 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import AgentCard from './components/AgentCard';
-import LogPanel from './components/LogPanel';
-import ConfirmModal from './components/ConfirmModal';
-import { AgentConfig, RunningAgent, LogEntry } from '../shared/types';
+import React, { useState, useCallback } from 'react';
+import TerminalPanel from './components/TerminalPanel';
+import { AgentInstance, AgentType } from '../shared/types';
+import * as os from 'os';
 
-const MAX_AGENTS = 10;
+const COMMANDS: Record<AgentType, string> = {
+  claude: 'claude --dangerously-skip-permissions',
+  codex:  'codex --approval-mode full-auto',
+};
 
-const defaultAgents: AgentConfig[] = [
-  { type: 'codex',  count: 1, command: 'codex --approval-mode full-auto' },
-  { type: 'claude', count: 1, command: 'claude --dangerously-skip-permissions' },
-  { type: 'gemini', count: 1, command: 'gemini' },
-];
+// Counter per type so names stay sequential
+const counters: Record<AgentType, number> = { claude: 0, codex: 0 };
+
+function gridCols(count: number): number {
+  if (count <= 1) return 1;
+  if (count <= 2) return 2;
+  return 3;
+}
 
 export default function App(): JSX.Element {
-  const [agents, setAgents] = useState<AgentConfig[]>(defaultAgents);
+  const [agents, setAgents] = useState<AgentInstance[]>([]);
   const [projectPath, setProjectPath] = useState('');
-  const [initialPrompt, setInitialPrompt] = useState('');
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [runningAgents, setRunningAgents] = useState<RunningAgent[]>([]);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [launching, setLaunching] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
 
-  const electronAPI = (window as any).electronAPI;
+  const cwd = projectPath.trim() || '.';
 
-  // Subscribe to IPC events from main process
-  useEffect(() => {
-    electronAPI.onLogEntry((entry: LogEntry) => {
-      setLogs((prev) => [...prev, entry]);
-    });
-    electronAPI.onAgentUpdate((agent: RunningAgent) => {
-      setRunningAgents((prev) => {
-        const idx = prev.findIndex((a) => a.id === agent.id);
-        if (idx >= 0) {
-          const next = [...prev];
-          next[idx] = agent;
-          return next;
-        }
-        return [...prev, agent];
-      });
-    });
-    return () => electronAPI.removeAllListeners();
+  const addAgent = useCallback((type: AgentType) => {
+    counters[type] += 1;
+    const id   = `${type}-${Date.now()}`;
+    const name = `${type}-agent-${counters[type]}`;
+    setAgents((prev) => [
+      ...prev,
+      { id, type, name, command: COMMANDS[type], status: 'starting', cwd },
+    ]);
+  }, [cwd]);
+
+  const removeAgent = useCallback((id: string) => {
+    setAgents((prev) => prev.filter((a) => a.id !== id));
   }, []);
 
-  const totalCount = agents.reduce((sum, a) => sum + a.count, 0);
-
-  const updateAgent = useCallback((type: AgentConfig['type'], field: 'count' | 'command', value: string | number) => {
-    setAgents((prev) => prev.map((a) => a.type === type ? { ...a, [field]: value } : a));
-    setErrorMsg('');
+  const removeAll = useCallback(() => {
+    setAgents([]);
   }, []);
 
-  const handlePickDirectory = async () => {
-    const dir = await electronAPI.pickDirectory();
+  const handlePickDir = async () => {
+    const dir = await window.electronAPI.pickDirectory();
     if (dir) setProjectPath(dir);
   };
 
-  const handleLaunchClick = () => {
-    setErrorMsg('');
-    // Validation
-    if (totalCount === 0) {
-      setErrorMsg('Set at least one agent count greater than 0.');
-      return;
-    }
-    if (totalCount > MAX_AGENTS) {
-      setErrorMsg(`Total agents (${totalCount}) exceeds max limit of ${MAX_AGENTS}.`);
-      return;
-    }
-    const emptyCmd = agents.find((a) => a.count > 0 && !a.command.trim());
-    if (emptyCmd) {
-      setErrorMsg(`Command for ${emptyCmd.type} is empty.`);
-      return;
-    }
-    setShowConfirm(true);
-  };
-
-  const handleConfirmLaunch = async () => {
-    setShowConfirm(false);
-    setLaunching(true);
-    setErrorMsg('');
-
-    try {
-      const result = await electronAPI.launchAgents({
-        projectPath: projectPath.trim(),
-        initialPrompt: initialPrompt.trim(),
-        maxAgents: MAX_AGENTS,
-        agents: agents.filter((a) => a.count > 0),
-      });
-
-      if (!result.success && result.error) {
-        setErrorMsg(result.error);
-      }
-      // Merge new agents into state
-      if (result.agents && result.agents.length > 0) {
-        setRunningAgents((prev) => {
-          const map = new Map(prev.map((a) => [a.id, a]));
-          result.agents.forEach((a: RunningAgent) => map.set(a.id, a));
-          return Array.from(map.values());
-        });
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setErrorMsg(`Launch failed: ${msg}`);
-    } finally {
-      setLaunching(false);
-    }
-  };
-
-  const handleStopAll = async () => {
-    try {
-      await electronAPI.stopAllAgents();
-      setRunningAgents((prev) => prev.map((a) => ({ ...a, status: 'stopped' as const })));
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setErrorMsg(`Stop failed: ${msg}`);
-    }
-  };
-
-  const hasRunning = runningAgents.some((a) => a.status === 'running' || a.status === 'starting');
+  const cols = gridCols(agents.length);
 
   return (
     <div className="app">
-      {/* Title bar */}
-      <div className="titlebar">
-        <span className="titlebar-title">⚡ Agent Launcher</span>
-      </div>
+      {/* ── Top bar ── */}
+      <div className="topbar">
+        <div className="topbar-left">
+          <span className="logo">⚡</span>
+          <span className="app-title">Agent Launcher</span>
+        </div>
 
-      <div className="main-content">
-        {/* Left: controls */}
-        <div className="left-panel">
-          <div className="app-header">
-            <div className="app-header-icon">⚡</div>
-            <div className="app-header-text">
-              <h1>Agent Launcher</h1>
-              <p>Spawn AI coding agents with one click</p>
-            </div>
-          </div>
-
-          {/* Agent cards */}
-          <AgentCard
-            type="codex"
-            color="#a855f7"
-            icon="◈"
-            config={agents.find((a) => a.type === 'codex')!}
-            onChange={updateAgent}
-          />
-          <AgentCard
-            type="claude"
-            color="#f97316"
-            icon="◆"
-            config={agents.find((a) => a.type === 'claude')!}
-            onChange={updateAgent}
-          />
-          <AgentCard
-            type="gemini"
-            color="#06b6d4"
-            icon="◇"
-            config={agents.find((a) => a.type === 'gemini')!}
-            onChange={updateAgent}
-          />
-
-          {/* Project path */}
-          <div className="card">
-            <div className="card-header">
-              <span style={{ fontSize: 14 }}>📁</span>
-              <h2>Project Path</h2>
-            </div>
-            <div className="path-row">
-              <input
-                type="text"
-                placeholder="Leave empty to use current directory"
-                value={projectPath}
-                onChange={(e) => setProjectPath(e.target.value)}
-              />
-              <button className="path-btn" onClick={handlePickDirectory}>Browse</button>
-            </div>
-          </div>
-
-          {/* Initial prompt */}
-          <div className="card">
-            <div className="card-header">
-              <span style={{ fontSize: 14 }}>💬</span>
-              <h2>Initial Prompt</h2>
-            </div>
-            <textarea
-              placeholder="Optional: passed as an argument to each agent command"
-              value={initialPrompt}
-              onChange={(e) => setInitialPrompt(e.target.value)}
-              rows={3}
+        <div className="topbar-center">
+          <div className="path-wrap">
+            <span className="path-icon">📁</span>
+            <input
+              className="path-input"
+              type="text"
+              placeholder="Project path (default: current dir)"
+              value={projectPath}
+              onChange={(e) => setProjectPath(e.target.value)}
             />
+            <button className="path-browse" onClick={handlePickDir}>Browse</button>
           </div>
-
-          {/* Error */}
-          {errorMsg && (
-            <div className="error-bar">
-              <span>⚠</span> {errorMsg}
-            </div>
-          )}
-
-          {/* Max limit */}
-          <div className="max-row">
-            <span className="max-badge">
-              Total: <span>{totalCount}</span> / {MAX_AGENTS} max
-            </span>
-          </div>
-
-          {/* Actions */}
-          <button
-            className="btn btn-launch"
-            onClick={handleLaunchClick}
-            disabled={launching || totalCount === 0}
-          >
-            {launching ? '⏳ Launching...' : `⚡ Launch ${totalCount > 0 ? totalCount : ''} Agent${totalCount !== 1 ? 's' : ''}`}
-          </button>
-
-          <button
-            className="btn btn-stop"
-            onClick={handleStopAll}
-            disabled={!hasRunning}
-          >
-            ⛔ Stop All Agents
-          </button>
         </div>
 
-        {/* Right: logs + agent status */}
-        <div className="right-panel">
-          {/* Active agents */}
-          {runningAgents.length > 0 && (
-            <div className="agents-grid">
-              {runningAgents.map((agent) => (
-                <div key={agent.id} className={`agent-chip chip-${agent.status}`}>
-                  <div className="agent-chip-dot" />
-                  <span className="chip-name">{agent.name}</span>
-                  {agent.pid && <span className="chip-pid">PID {agent.pid}</span>}
-                </div>
-              ))}
-            </div>
+        <div className="topbar-right">
+          <button className="btn-add btn-claude" onClick={() => addAgent('claude')}>
+            <span className="btn-icon">◆</span> Add Claude
+          </button>
+          <button className="btn-add btn-codex" onClick={() => addAgent('codex')}>
+            <span className="btn-icon">◈</span> Add Codex
+          </button>
+          {agents.length > 0 && (
+            <button className="btn-stop-all" onClick={removeAll} title="Kill & close all agents">
+              ✕ Stop All
+            </button>
           )}
-
-          {/* Log panel */}
-          <LogPanel logs={logs} onClear={() => setLogs([])} />
         </div>
       </div>
 
-      {/* Confirmation modal */}
-      {showConfirm && (
-        <ConfirmModal
-          agents={agents}
-          projectPath={projectPath || '(current directory)'}
-          initialPrompt={initialPrompt}
-          onConfirm={handleConfirmLaunch}
-          onCancel={() => setShowConfirm(false)}
-        />
+      {/* ── Main area ── */}
+      {agents.length === 0 ? (
+        <div className="empty-state">
+          <div className="empty-icon">⚡</div>
+          <h2>Agent Launcher</h2>
+          <p>Add agents to get started. Each one opens as a live terminal below.</p>
+          <div className="empty-buttons">
+            <button className="btn-add btn-claude lg" onClick={() => addAgent('claude')}>
+              <span className="btn-icon">◆</span> Add Claude Agent
+            </button>
+            <button className="btn-add btn-codex lg" onClick={() => addAgent('codex')}>
+              <span className="btn-icon">◈</span> Add Codex Agent
+            </button>
+          </div>
+          <p className="empty-hint">
+            Runs <code>claude --dangerously-skip-permissions</code> and <code>codex --approval-mode full-auto</code>
+          </p>
+        </div>
+      ) : (
+        <div
+          className="terminal-grid"
+          style={{ '--grid-cols': cols } as React.CSSProperties}
+        >
+          {agents.map((agent) => (
+            <TerminalPanel
+              key={agent.id}
+              agent={agent}
+              onClose={() => removeAgent(agent.id)}
+            />
+          ))}
+        </div>
       )}
     </div>
   );

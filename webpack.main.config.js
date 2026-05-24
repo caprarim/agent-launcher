@@ -7,6 +7,10 @@ module.exports = {
     preload: './src/main/preload.ts',
   },
   target: 'electron-main',
+  // node-pty is a native module — never bundle it, require at runtime
+  externals: {
+    'node-pty': 'commonjs node-pty',
+  },
   module: {
     rules: [
       {

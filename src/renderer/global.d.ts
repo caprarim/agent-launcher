@@ -1,15 +1,15 @@
-import { LaunchConfig, RunningAgent, LogEntry, LaunchResult } from '../shared/types';
+import { PtyCreateOptions, PtyCreateResult } from '../shared/types';
 
 declare global {
   interface Window {
     electronAPI: {
-      launchAgents: (config: LaunchConfig) => Promise<LaunchResult>;
-      stopAllAgents: () => Promise<{ stopped: number }>;
-      getRunningAgents: () => Promise<RunningAgent[]>;
+      ptyCreate: (opts: PtyCreateOptions) => Promise<PtyCreateResult>;
+      ptyWrite: (id: string, data: string) => void;
+      ptyResize: (id: string, cols: number, rows: number) => void;
+      ptyKill: (id: string) => Promise<void>;
+      onPtyData: (id: string, cb: (data: string) => void) => () => void;
+      onPtyExit: (id: string, cb: (code: number) => void) => () => void;
       pickDirectory: () => Promise<string | null>;
-      onLogEntry: (callback: (entry: LogEntry) => void) => void;
-      onAgentUpdate: (callback: (agent: RunningAgent) => void) => void;
-      removeAllListeners: () => void;
     };
   }
 }

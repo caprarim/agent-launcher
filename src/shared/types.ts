@@ -1,34 +1,25 @@
-export interface AgentConfig {
-  type: 'codex' | 'claude' | 'gemini';
-  count: number;
-  command: string;
-}
+export type AgentType = 'claude' | 'codex';
 
-export interface LaunchConfig {
-  projectPath: string;
-  initialPrompt: string;
-  maxAgents: number;
-  agents: AgentConfig[];
-}
-
-export interface RunningAgent {
+export interface AgentInstance {
   id: string;
+  type: AgentType;
   name: string;
-  type: string;
+  command: string;
+  status: 'starting' | 'running' | 'exited' | 'error';
   pid?: number;
-  status: 'starting' | 'running' | 'stopped' | 'error';
-  startedAt: Date;
+  cwd: string;
 }
 
-export interface LogEntry {
-  timestamp: string;
-  level: 'info' | 'success' | 'error' | 'warn';
-  message: string;
+export interface PtyCreateOptions {
+  id: string;
+  command: string;
+  cwd: string;
+  cols: number;
+  rows: number;
 }
 
-export interface LaunchResult {
+export interface PtyCreateResult {
   success: boolean;
-  agents: RunningAgent[];
-  logs: LogEntry[];
+  pid?: number;
   error?: string;
 }
