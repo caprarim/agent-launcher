@@ -41,9 +41,6 @@
     "shortDescription": "Launch multiple AI coding agents with split terminals",
     "longDescription": "Agent Launcher runs several AI coding agents (Claude, Codex, Gemini, Cursor, Grok) side by side as live terminals, with a localhost control API so an agent can spawn and drive its own team.",
     "linux": {
-      "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
-      },
       "appimage": {
         "bundleMediaFramework": false
       }
