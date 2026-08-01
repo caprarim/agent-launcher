@@ -1,6 +1,18 @@
 # Agent Launcher
 
-A clean Electron desktop app that lets you spawn multiple AI coding agents (Codex, Claude, Gemini) with one click — each in its own terminal window.
+A clean desktop app that lets you spawn multiple AI coding agents (Codex, Claude, Gemini, Cursor, Grok) with one click — each in its own embedded terminal.
+
+Two shells build from this one source tree:
+
+| Platform | Shell | Build |
+|---|---|---|
+| Windows | Electron | `npm run package` |
+| Linux (Ubuntu) | **Tauri v2** | `npm run build:linux` |
+
+Linux users: see **[LINUX.md](LINUX.md)** for install, build, and the handful of
+platform differences. The React UI is identical — `src/renderer/tauri/bridge.ts`
+reinstalls the same `window.electronAPI` surface on top of Tauri's `invoke` and
+`listen`, and `src-tauri/` holds the Rust port of the Electron main process.
 
 ## Screenshot
 

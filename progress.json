@@ -1,0 +1,97 @@
+{
+  "project": "agent-launcher",
+  "sessions": [
+    {
+      "date": "2026-06-20",
+      "title": "Fast team orchestration",
+      "changes": [
+        {
+          "file": "src/main/controlServer.ts",
+          "description": "Added POST /orchestrate endpoint — spawns a whole team of agents in parallel, waits for each to be ready (smart polling instead of a fixed 6s sleep), then injects each agent's task plus shared cross-agent context in one call."
+        },
+        {
+          "file": "src/main/controlServer.ts",
+          "description": "waitUntilReady(): polls terminal output and returns as soon as a known CLI ready marker appears or output settles (~2-3s). Runs for all agents in parallel."
+        },
+        {
+          "file": "src/main/controlServer.ts",
+          "description": "buildTeamPrompt(): builds a single-line prompt telling each agent it is 'Agent N of M', the shared goal, and what every other agent is doing. Single-line so a raw PTY does not submit it early on newlines."
+        },
+        {
+          "file": "src/main/controlServer.ts",
+          "description": "Hard cap of 5 agents enforced on both POST /agents and POST /orchestrate."
+        },
+        {
+          "file": "package.json",
+          "description": "Bumped version to 1.1.0."
+        },
+        {
+          "file": "CLAUDE.md",
+          "description": "Documented /orchestrate as the preferred orchestration path."
+        },
+        {
+          "file": "release/Agent Terminals Setup 1.1.0.exe",
+          "description": "Ran npm run package to produce the installer."
+        }
+      ]
+    },
+    {
+      "date": "2026-07-01",
+      "title": "Terminal scroll corruption fix + Start-menu launch fix",
+      "changes": [
+        {
+          "file": "src/main/preload.ts",
+          "description": "Added import of Node os module and computed winBuildNumber (the Windows build number, e.g. 19045) at preload init time using os.release(). Exposed it as window.electronAPI.winBuildNumber so the renderer can pass it to xterm without an async IPC round-trip."
+        },
+        {
+          "file": "src/renderer/global.d.ts",
+          "description": "Added winBuildNumber: number to the electronAPI interface type."
+        },
+        {
+          "file": "src/renderer/components/TerminalPanel.tsx",
+          "description": "Added windowsPty: { backend: 'conpty', buildNumber } to the Terminal constructor options. Without this, xterm.js does not know it is driving a Windows ConPTY backend and mis-reflows wrapped lines on every resize, causing the overlapping/garbled scrollback text."
+        },
+        {
+          "file": "src/renderer/components/TerminalPanel.tsx",
+          "description": "Changed lineHeight from 1.4 to 1.2. Non-integer cell heights from 1.4 caused FitAddon to miscalculate rows, contributing to corruption."
+        },
+        {
+          "file": "src/renderer/components/TerminalPanel.tsx",
+          "description": "Moved fit.fit() and ptyCreate() inside document.fonts.ready.then() so initial PTY dimensions are measured against the loaded monospace font, not a fallback glyph. Added lastSizeRef to track last sent cols/rows."
+        },
+        {
+          "file": "src/renderer/components/TerminalPanel.tsx",
+          "description": "Replaced the raw ResizeObserver body with a debounced version (80ms timeout). Added a cols/rows change guard: ptyResize is only called when the dimensions actually changed. This stops the reflow storm that corrupted scrollback under rapid layout changes."
+        },
+        {
+          "file": "src/renderer/components/TerminalPanel.tsx",
+          "description": "Clear the debounce timer in the useEffect cleanup to prevent stale callbacks after unmount."
+        },
+        {
+          "file": "src/renderer/styles.css",
+          "description": "Added scrollbar-gutter: stable to .panel-terminal .xterm-viewport so the scrollbar reservation does not cause layout shifts that re-trigger the ResizeObserver."
+        },
+        {
+          "file": "release/win-unpacked/resources/app.asar",
+          "description": "Repacked app.asar in-place using npx @electron/asar pack dist (without touching the running Agent Launcher.exe). This pushes all the above fixes into the installed app without a full electron-builder repackage."
+        },
+        {
+          "file": "Start Menu shortcut (Agent Launcher.lnk)",
+          "description": "Restored the Start-menu shortcut to point directly at release/win-unpacked/Agent Launcher.exe after a failed experiment with a wscript.exe + VBS build-on-click approach that was causing the wrong app (old NSIS Agent Terminals) to launch."
+        },
+        {
+          "file": "launch.ps1",
+          "description": "Created (unused after shortcut was restored). Runs npm run build then npx electron . for a dev-mode always-latest launch."
+        },
+        {
+          "file": "launch.vbs",
+          "description": "Created (unused after shortcut was restored). Silent wscript wrapper around launch.ps1 to suppress the console window."
+        },
+        {
+          "file": "setup-shortcut.ps1",
+          "description": "Created. Rewrites the Agent Launcher Start-menu shortcut and removes the stale Agent Terminals duplicate. Was used to test the VBS approach; shortcut was subsequently restored to the direct exe path."
+        }
+      ]
+    }
+  ]
+}

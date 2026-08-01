@@ -1,6 +1,6 @@
 {
-  "name": "agent-launcher",
-  "version": "1.0.0",
+  "name": "agent-terminals",
+  "version": "1.1.0",
   "description": "Launch multiple AI coding agents with split terminals",
   "main": "dist/main/main.js",
   "scripts": {
@@ -13,13 +13,19 @@
     "build": "npm run build:main && npm run build:renderer",
     "start": "npm run build && electron .",
     "rebuild": "electron-rebuild -f -w node-pty",
-    "package": "npm run build && electron-builder"
+    "package": "npm run build && electron-builder",
+    "build:tauri-renderer": "webpack --config webpack.tauri.config.js --mode production",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "build:linux": "tauri build --bundles deb,appimage"
   },
   "keywords": ["electron", "ai", "agents", "launcher", "terminal"],
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "@electron/rebuild": "^4.0.4",
+    "@tauri-apps/cli": "^2.0.0",
     "@types/node": "^20.0.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
@@ -36,6 +42,7 @@
     "webpack-cli": "^5.0.0"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "node-pty": "^1.1.0",
@@ -43,11 +50,18 @@
     "react-dom": "^18.0.0"
   },
   "build": {
-    "appId": "com.agentlauncher.app",
+    "appId": "com.agentterminals.app",
     "productName": "Agent Launcher",
     "asar": true,
     "directories": { "output": "release" },
-    "files": ["dist/**/*", "node_modules/**/*", "package.json"],
+    "files": [
+      {
+        "from": ".",
+        "to": ".",
+        "filter": ["dist/**/*", "node_modules/**/*", "package.json"]
+      }
+    ],
+    "asarUnpack": ["**/node_modules/node-pty/**/*"],
     "win": { "target": "nsis" },
     "mac": { "target": "dmg" },
     "linux": { "target": "AppImage" }

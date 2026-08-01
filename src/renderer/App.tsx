@@ -1,123 +1,204 @@
-import React, { useState, useCallback } from 'react';
-import TerminalPanel from './components/TerminalPanel';
-import { AgentInstance, AgentType } from '../shared/types';
-import * as os from 'os';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import Workspace, { WorkspaceApi } from './components/Workspace';
+import { AgentInstance, WorkspaceInfo } from '../shared/types';
 
-const COMMANDS: Record<AgentType, string> = {
-  claude: 'claude --dangerously-skip-permissions',
-  codex:  'codex --approval-mode full-auto',
-};
+const STORAGE_KEY = 'launcher-workspaces-v1';
+const SESSION_KEY = 'launcher-session-alive';
 
-// Counter per type so names stay sequential
-const counters: Record<AgentType, number> = { claude: 0, codex: 0 };
+interface StoredWorkspace {
+  id: string;
+  name: string;
+  hasOwnConfig: boolean;
+}
 
-function gridCols(count: number): number {
-  if (count <= 1) return 1;
-  if (count <= 2) return 2;
-  return 3;
+interface WsState extends StoredWorkspace {
+  configDir?: string;
+}
+
+const DEFAULT_WS: StoredWorkspace = { id: 'default', name: 'Workspace 1', hasOwnConfig: false };
+
+function loadStored(): { list: StoredWorkspace[]; activeId: string } {
+  try {
+    // Workspaces live only as long as the app: every launch starts clean with
+    // the single default workspace. sessionStorage survives an in-window
+    // reload but not an app restart, so it tells the two apart — the stored
+    // list is only restored mid-session, never across launches.
+    if (!sessionStorage.getItem(SESSION_KEY)) {
+      sessionStorage.setItem(SESSION_KEY, '1');
+      localStorage.removeItem(STORAGE_KEY);
+      return { list: [DEFAULT_WS], activeId: DEFAULT_WS.id };
+    }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { list?: StoredWorkspace[]; activeId?: string };
+      if (Array.isArray(parsed.list) && parsed.list.length > 0) {
+        // Workspaces saved before per-workspace configs existed have no
+        // hasOwnConfig flag — treat them as isolated (own config dir) so they
+        // stop sharing the global Claude account. Only 'default' keeps it.
+        const list = parsed.list
+          .filter((w) => w && w.id && w.name)
+          .map((w) => ({
+            ...w,
+            hasOwnConfig: typeof w.hasOwnConfig === 'boolean' ? w.hasOwnConfig : w.id !== 'default',
+          }));
+        if (list.length > 0) {
+          const activeId = list.some((w) => w.id === parsed.activeId) ? String(parsed.activeId) : list[0].id;
+          return { list, activeId };
+        }
+      }
+    }
+  } catch (_e) {}
+  return { list: [DEFAULT_WS], activeId: DEFAULT_WS.id };
 }
 
 export default function App(): JSX.Element {
-  const [agents, setAgents] = useState<AgentInstance[]>([]);
-  const [projectPath, setProjectPath] = useState('');
+  const stored = useRef(loadStored());
+  const [workspaces, setWorkspaces] = useState<WsState[]>(stored.current.list);
+  const [activeId, setActiveId] = useState(stored.current.activeId);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
 
-  const cwd = projectPath.trim() || '.';
+  const agentsByWs = useRef<Map<string, AgentInstance[]>>(new Map());
+  const apisRef = useRef<Map<string, WorkspaceApi>>(new Map());
+  const requestedConfigs = useRef<Set<string>>(new Set());
+  const activeIdRef = useRef(activeId);
+  activeIdRef.current = activeId;
 
-  const addAgent = useCallback((type: AgentType) => {
-    counters[type] += 1;
-    const id   = `${type}-${Date.now()}`;
-    const name = `${type}-agent-${counters[type]}`;
-    setAgents((prev) => [
-      ...prev,
-      { id, type, name, command: COMMANDS[type], status: 'starting', cwd },
-    ]);
-  }, [cwd]);
+  useEffect(() => {
+    for (const ws of workspaces) {
+      if (!ws.hasOwnConfig || ws.configDir || requestedConfigs.current.has(ws.id)) continue;
+      requestedConfigs.current.add(ws.id);
+      window.electronAPI.ensureWorkspaceConfig(ws.id).then((dir) => {
+        setWorkspaces((prev) => prev.map((w) => (w.id === ws.id ? { ...w, configDir: dir } : w)));
+      });
+    }
+  }, [workspaces]);
 
-  const removeAgent = useCallback((id: string) => {
-    setAgents((prev) => prev.filter((a) => a.id !== id));
+  useEffect(() => {
+    const list = workspaces.map(({ id, name, hasOwnConfig }) => ({ id, name, hasOwnConfig }));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ list, activeId }));
+    } catch (_e) {}
+  }, [workspaces, activeId]);
+
+  const syncAll = useCallback(() => {
+    const flat: AgentInstance[] = [];
+    for (const agents of agentsByWs.current.values()) flat.push(...agents);
+    window.electronAPI.syncAgents(flat);
   }, []);
 
-  const removeAll = useCallback(() => {
-    setAgents([]);
+  const handleAgentsChange = useCallback((wsId: string, agents: AgentInstance[]) => {
+    agentsByWs.current.set(wsId, agents);
+    syncAll();
+  }, [syncAll]);
+
+  const registerApi = useCallback((wsId: string, api: WorkspaceApi | null) => {
+    if (api) apisRef.current.set(wsId, api);
+    else apisRef.current.delete(wsId);
   }, []);
 
-  const handlePickDir = async () => {
-    const dir = await window.electronAPI.pickDirectory();
-    if (dir) setProjectPath(dir);
+  useEffect(() => {
+    const offAdd = window.electronAPI.onControlAddAgent((requestId, type) => {
+      const api = apisRef.current.get(activeIdRef.current) || apisRef.current.values().next().value;
+      if (!api) return;
+      const agent = api.addAgent(type);
+      window.electronAPI.controlAddAgentResult(requestId, agent);
+    });
+    const offRemove = window.electronAPI.onControlRemoveAgent((id) => {
+      for (const api of apisRef.current.values()) api.removeAgent(id);
+    });
+    return () => { offAdd(); offRemove(); };
+  }, []);
+
+  const addWorkspace = async () => {
+    const id = `ws-${Date.now()}`;
+    const name = `Workspace ${workspaces.length + 1}`;
+    const dir = await window.electronAPI.ensureWorkspaceConfig(id);
+    requestedConfigs.current.add(id);
+    setWorkspaces((prev) => [...prev, { id, name, hasOwnConfig: true, configDir: dir }]);
+    setActiveId(id);
   };
 
-  const cols = gridCols(agents.length);
+  const removeWorkspace = (id: string) => {
+    if (workspaces.length <= 1) return;
+    agentsByWs.current.delete(id);
+    syncAll();
+    const next = workspaces.filter((w) => w.id !== id);
+    setWorkspaces(next);
+    if (activeId === id && next.length > 0) setActiveId(next[0].id);
+  };
+
+  const startRename = (ws: WsState) => {
+    setEditingId(ws.id);
+    setDraft(ws.name);
+  };
+
+  const commitRename = () => {
+    const name = draft.trim().slice(0, 40);
+    if (editingId && name) {
+      setWorkspaces((prev) => prev.map((w) => (w.id === editingId ? { ...w, name } : w)));
+    }
+    setEditingId(null);
+  };
 
   return (
-    <div className="app">
-      {/* ── Top bar ── */}
-      <div className="topbar">
-        <div className="topbar-left">
-          <span className="logo">⚡</span>
-          <span className="app-title">Agent Launcher</span>
+    <div className="shell">
+      <div className="sidebar">
+        <div className="sidebar-header">
+          <span className="sidebar-title">WORKSPACES</span>
+          <button className="sidebar-add" title="Add workspace" onClick={addWorkspace}>+</button>
         </div>
-
-        <div className="topbar-center">
-          <div className="path-wrap">
-            <span className="path-icon">📁</span>
-            <input
-              className="path-input"
-              type="text"
-              placeholder="Project path (default: current dir)"
-              value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-            />
-            <button className="path-browse" onClick={handlePickDir}>Browse</button>
-          </div>
-        </div>
-
-        <div className="topbar-right">
-          <button className="btn-add btn-claude" onClick={() => addAgent('claude')}>
-            <span className="btn-icon">◆</span> Add Claude
-          </button>
-          <button className="btn-add btn-codex" onClick={() => addAgent('codex')}>
-            <span className="btn-icon">◈</span> Add Codex
-          </button>
-          {agents.length > 0 && (
-            <button className="btn-stop-all" onClick={removeAll} title="Kill & close all agents">
-              ✕ Stop All
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ── Main area ── */}
-      {agents.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-icon">⚡</div>
-          <h2>Agent Launcher</h2>
-          <p>Add agents to get started. Each one opens as a live terminal below.</p>
-          <div className="empty-buttons">
-            <button className="btn-add btn-claude lg" onClick={() => addAgent('claude')}>
-              <span className="btn-icon">◆</span> Add Claude Agent
-            </button>
-            <button className="btn-add btn-codex lg" onClick={() => addAgent('codex')}>
-              <span className="btn-icon">◈</span> Add Codex Agent
-            </button>
-          </div>
-          <p className="empty-hint">
-            Runs <code>claude --dangerously-skip-permissions</code> and <code>codex --approval-mode full-auto</code>
-          </p>
-        </div>
-      ) : (
-        <div
-          className="terminal-grid"
-          style={{ '--grid-cols': cols } as React.CSSProperties}
-        >
-          {agents.map((agent) => (
-            <TerminalPanel
-              key={agent.id}
-              agent={agent}
-              onClose={() => removeAgent(agent.id)}
-            />
+        <div className="sidebar-list">
+          {workspaces.map((ws) => (
+            <div
+              key={ws.id}
+              className={`ws-item${ws.id === activeId ? ' active' : ''}`}
+              onClick={() => setActiveId(ws.id)}
+              onDoubleClick={() => startRename(ws)}
+            >
+              {editingId === ws.id ? (
+                <input
+                  className="ws-name-input"
+                  value={draft}
+                  autoFocus
+                  maxLength={40}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onBlur={commitRename}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitRename();
+                    else if (e.key === 'Escape') setEditingId(null);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span className="ws-name" title="Double-click to rename">{ws.name}</span>
+              )}
+              {workspaces.length > 1 && (
+                <button
+                  className="ws-delete"
+                  title="Delete workspace"
+                  onClick={(e) => { e.stopPropagation(); removeWorkspace(ws.id); }}
+                >x</button>
+              )}
+            </div>
           ))}
         </div>
-      )}
+      </div>
+      <div className="shell-main">
+        {workspaces.map((ws) => {
+          const info: WorkspaceInfo = { id: ws.id, name: ws.name, configDir: ws.configDir };
+          return (
+            <div key={ws.id} className="ws-host" style={{ display: ws.id === activeId ? 'flex' : 'none' }}>
+              <Workspace
+                workspace={info}
+                active={ws.id === activeId}
+                onAgentsChange={handleAgentsChange}
+                registerApi={registerApi}
+              />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

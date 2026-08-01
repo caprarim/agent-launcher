@@ -1,0 +1,100 @@
+name: Build Linux (Tauri v2)
+
+# Builds the Ubuntu bundles for the Tauri v2 port and attaches them to a
+# release. Runs on ubuntu-22.04 on purpose: its glibc (2.35) is old enough that
+# the artifacts also run on 24.04, while a 24.04 build would not run on 22.04.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach the Linux bundles to (e.g. v2.1.0)"
+        required: true
+        default: "v2.1.0"
+  push:
+    tags:
+      - "v*"
+      - "linux-build-*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            build-essential \
+            curl wget file
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # --ignore-scripts skips the electron-rebuild postinstall, which is for
+      # the Windows Electron build and has nothing to do with the Linux bundle.
+      - name: Install npm dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Build renderer
+        run: npm run build:tauri-renderer
+
+      - name: Build Tauri bundles
+        run: npx tauri build --bundles deb,appimage
+
+      - name: Collect bundles
+        id: bundles
+        run: |
+          mkdir -p out
+          cp src-tauri/target/release/bundle/deb/*.deb out/ || true
+          cp src-tauri/target/release/bundle/appimage/*.AppImage out/ || true
+          ls -la out
+          test -n "$(ls -A out)" || { echo "no bundles were produced"; exit 1; }
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-launcher-linux
+          path: out/*
+
+      # Target, in order: an explicitly dispatched tag, the pushed tag if it
+      # already has a release, otherwise the repository's latest release. A
+      # throwaway `linux-build-*` tag therefore adds the bundles to the current
+      # release instead of spawning a new one.
+      - name: Attach bundles to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_TAG: ${{ github.ref_name }}
+        run: |
+          TAG="$INPUT_TAG"
+          if [ -z "$TAG" ] && gh release view "$REF_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            TAG="$REF_TAG"
+          fi
+          if [ -z "$TAG" ]; then
+            TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          fi
+          echo "attaching Linux bundles to release $TAG"
+          gh release upload "$TAG" out/* --repo "$GITHUB_REPOSITORY" --clobber

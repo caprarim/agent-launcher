@@ -1,5 +1,10 @@
 node_modules/
 dist/
+dist-tauri/
+src-tauri/target/
+src-tauri/gen/
 release/
 *.log
 .DS_Store
+video/
+New folder/
