@@ -13,6 +13,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 
@@ -74,11 +75,15 @@ pub fn state(app: &AppHandle) -> State<'_, AppState> {
 // ── PTY ───────────────────────────────────────────────────────────────────────
 
 #[tauri::command]
-fn pty_create(app: AppHandle, opts: PtyCreateOptions) -> PtyCreateResult {
+fn pty_create(
+    app: AppHandle,
+    opts: PtyCreateOptions,
+    on_data: Channel<String>,
+) -> PtyCreateResult {
     let handle = app.clone();
     let app_state = state(&app);
     let port = app_state.port();
-    app_state.ptys.create(&handle, opts, port)
+    app_state.ptys.create(&handle, opts, port, on_data)
 }
 
 #[tauri::command]

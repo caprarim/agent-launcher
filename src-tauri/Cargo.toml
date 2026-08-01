@@ -32,5 +32,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 codegen-units = 1
 lto = true
 opt-level = "s"
-panic = "abort"
 strip = true
+# Deliberately NOT panic = "abort": the control API serves whatever an agent in
+# a terminal sends it, on a thread per request. Unwinding kills that one thread;
+# aborting would take the window and every running terminal down with it.

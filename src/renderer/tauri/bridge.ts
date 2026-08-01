@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import {
   AgentInstance,
@@ -130,9 +130,14 @@ export function installTauriBridge(info: PlatformInfo): void {
   registerListeners();
 
   window.electronAPI = {
-    // PTY lifecycle
-    ptyCreate: (opts: PtyCreateOptions): Promise<PtyCreateResult> =>
-      invoke<PtyCreateResult>('pty_create', { opts }),
+    // PTY lifecycle. Output comes back over a per-terminal channel rather than
+    // a broadcast event: five agents streaming at once is the normal case, and
+    // a channel writes straight to the xterm instance that asked for it.
+    ptyCreate: (opts: PtyCreateOptions): Promise<PtyCreateResult> => {
+      const onData = new Channel<string>();
+      onData.onmessage = (data) => { dataCallbacks.get(opts.id)?.(data); };
+      return invoke<PtyCreateResult>('pty_create', { opts, onData });
+    },
 
     ptyWrite: (id: string, data: string): void => {
       void invoke('pty_write', { id, data });

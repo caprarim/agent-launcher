@@ -7,6 +7,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter};
 
 use crate::accounts;
@@ -161,8 +162,9 @@ impl PtyManager {
         app: &AppHandle,
         opts: PtyCreateOptions,
         control_port: u16,
+        on_data: Channel<String>,
     ) -> PtyCreateResult {
-        match self.try_create(app, opts, control_port) {
+        match self.try_create(app, opts, control_port, on_data) {
             Ok(pid) => PtyCreateResult {
                 success: true,
                 pid,
@@ -181,6 +183,7 @@ impl PtyManager {
         app: &AppHandle,
         opts: PtyCreateOptions,
         control_port: u16,
+        on_data: Channel<String>,
     ) -> Result<Option<u32>, String> {
         let pty_system = native_pty_system();
         let pair = pty_system
@@ -259,7 +262,7 @@ impl PtyManager {
             .insert(opts.id.clone(), session);
         self.buffers.lock().unwrap().insert(opts.id.clone(), String::new());
 
-        self.spawn_reader(app, &opts.id, reader);
+        self.spawn_reader(app, &opts.id, reader, on_data);
         self.spawn_exit_watcher(app, &opts.id);
 
         // A short delay before the CLI command so the shell has printed its
@@ -280,7 +283,17 @@ impl PtyManager {
         Ok(pid)
     }
 
-    fn spawn_reader(&self, app: &AppHandle, id: &str, mut reader: Box<dyn Read + Send>) {
+    // Terminal output is the app's hot path — five agents streaming at once is
+    // normal. It goes back over a per-terminal Channel rather than app.emit:
+    // an event is broadcast to every listener and re-dispatched by id in JS,
+    // while a channel writes straight to the one xterm instance that wants it.
+    fn spawn_reader(
+        &self,
+        app: &AppHandle,
+        id: &str,
+        mut reader: Box<dyn Read + Send>,
+        on_data: Channel<String>,
+    ) {
         let app = app.clone();
         let id = id.to_string();
         std::thread::spawn(move || {
@@ -299,10 +312,9 @@ impl PtyManager {
                         if id.starts_with("claude-") {
                             state.ptys.watch_for_usage_limit(&app, &id, &text);
                         }
-                        let _ = app.emit(
-                            "pty:data",
-                            serde_json::json!({ "id": id, "data": text }),
-                        );
+                        if on_data.send(text).is_err() {
+                            break; // the window went away
+                        }
                     }
                     Err(_) => break,
                 }
