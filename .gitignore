@@ -1,5 +1,11 @@
 node_modules/
 dist/
 release/
+src-tauri/target/
+src-tauri/gen/
 *.log
 .DS_Store
+video/
+_verify_*.png
+_wait_setup.sh
+progress.json
