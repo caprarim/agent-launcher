@@ -5,7 +5,7 @@
 Download the newest `.deb` from [Releases](https://github.com/caprarim/agent-launcher/releases/latest) and install it:
 
 ```bash
-sudo apt install ./Agent\ Launcher\ ADE_*_amd64.deb
+sudo apt install ./Agent*amd64.deb
 ```
 
 Then launch **Agent Launcher ADE** from your app menu, or run `agent-launcher` in a terminal.
