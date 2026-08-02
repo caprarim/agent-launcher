@@ -1,0 +1,159 @@
+name: smoke-linux
+
+# Installs the released .deb the way a user would and drives the running app
+# through its control API to prove the terminals actually work.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag holding the .deb (blank = latest release)"
+        required: false
+        default: ""
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    outputs:
+      deb: ${{ steps.dl.outputs.deb }}
+    steps:
+      - name: Download the .deb from the release
+        id: dl
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-}"
+          if [ -z "$tag" ]; then
+            tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          echo "Smoke testing the .deb on release $tag"
+          mkdir -p out
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern '*.deb' --dir out
+          deb=$(ls out/*.deb)
+          echo "deb=$(basename "$deb")" >> "$GITHUB_OUTPUT"
+          ls -la out
+          sha256sum "$deb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: out/*.deb
+          if-no-files-found: error
+
+  # LINUX.md claims the 22.04 build also runs on 24.04, so check both, each on a
+  # bare image where only the package's declared Depends are available.
+  package:
+    needs: fetch
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04"]
+    container:
+      image: ${{ matrix.image }}
+      options: --user root
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Bootstrap the bare image
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y ca-certificates git
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: /tmp/deb
+
+      - name: Install with declared dependencies only
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          dpkg-deb --info "/tmp/deb/${{ needs.fetch.outputs.deb }}"
+          apt-get install -y "/tmp/deb/${{ needs.fetch.outputs.deb }}"
+
+      - name: Verify installed layout
+        run: |
+          set -euo pipefail
+          dpkg -L agent-launcher
+          test -x /usr/bin/agent-launcher
+          test -f "/usr/share/applications/Agent Launcher.desktop"
+
+      - name: Check for libraries the package failed to declare
+        run: |
+          set -euo pipefail
+          ldd /usr/bin/agent-launcher | tee /tmp/ldd.txt
+          if grep -q "not found" /tmp/ldd.txt; then
+            echo "::error::the .deb does not pull in every library the binary links against"
+            grep "not found" /tmp/ldd.txt
+            exit 1
+          fi
+          echo "every NEEDED library resolved from the declared Depends alone"
+
+      - name: Run the app and its terminals
+        run: |
+          set -euo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get install -y xvfb dbus-x11 x11-utils xdotool imagemagick jq curl desktop-file-utils
+          desktop-file-validate "/usr/share/applications/Agent Launcher.desktop"
+          bash "$GITHUB_WORKSPACE/.github/scripts/launch-check.sh"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: evidence-${{ strategy.job-index }}
+          path: |
+            /tmp/launcher-smoke/*.png
+            /tmp/launcher-smoke/*.log
+            /tmp/launcher-smoke/*.json
+          if-no-files-found: warn
+
+      - name: Remove cleanly
+        run: |
+          set -euo pipefail
+          apt-get remove -y agent-launcher
+          test ! -e /usr/bin/agent-launcher
+          echo "package removed cleanly"
+
+  desktop:
+    needs: fetch
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: /tmp/deb
+
+      - name: Install
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y "/tmp/deb/${{ needs.fetch.outputs.deb }}"
+          sudo apt-get install -y xvfb dbus-x11 x11-utils xdotool imagemagick jq desktop-file-utils
+          dpkg -s agent-launcher
+
+      - name: Validate desktop entry
+        run: desktop-file-validate "/usr/share/applications/Agent Launcher.desktop"
+
+      - name: Run the app and its terminals
+        run: bash .github/scripts/launch-check.sh
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: |
+            /tmp/launcher-smoke/*.png
+            /tmp/launcher-smoke/*.log
+            /tmp/launcher-smoke/*.json
+          if-no-files-found: warn
