@@ -1,10 +1,21 @@
-name: Linux build
+name: Linux build (ADE v2)
+
+# Builds the Ubuntu bundles for the Tauri v2 ADE app. Runs on ubuntu-22.04 on
+# purpose: its glibc (2.35) is old enough that the artifacts also run on 24.04,
+# while a 24.04 build would not run on 22.04.
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
+    branches:
+      - main
+      - 'claude/**'
+      - 'linux-**'
+    tags:
+      - 'v*'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   deb:
@@ -16,7 +27,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -35,10 +45,11 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libasound2-dev \
+            patchelf \
             build-essential curl wget file
 
       - name: Install npm dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build deb and AppImage
         run: npm run tauri:linux
@@ -46,13 +57,14 @@ jobs:
       - name: Collect bundles
         run: |
           mkdir -p out
-          find src-tauri/target/release/bundle -name '*.deb' -exec cp {} out/ \;
-          find src-tauri/target/release/bundle -name '*.AppImage' -exec cp {} out/ \;
+          cp src-tauri/target/release/bundle/deb/*.deb out/ || true
+          cp src-tauri/target/release/bundle/appimage/*.AppImage out/ || true
           ls -lh out
+          test -n "$(ls -A out)" || { echo "no bundles were produced"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
-          name: agent-launcher-linux
+          name: agent-launcher-ade-linux
           path: out/*
 
       - name: Attach to release
