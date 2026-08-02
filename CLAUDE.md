@@ -51,6 +51,25 @@ Always set `CARGO_TARGET_DIR` before building, then install the finished build o
 per-user app at `%LOCALAPPDATA%\Agent Launcher ADE`, which is what the Start Menu shortcut
 opens (verified 2026-07-27; `src-tauri\target\release` no longer exists on C:).
 
+### Linux (.deb)
+
+Tauri cannot cross compile Windows to Linux, so the `.deb` and `.AppImage` are built by
+`.github/workflows/linux-build.yml` on a free `ubuntu-22.04` runner (the repo is public, so
+CI is free). Push a `v*` tag to publish them to a GitHub Release, or run the workflow
+manually and download the artifact. On an Ubuntu machine, `npm run tauri:linux` does the
+same locally.
+
+Platform differences in the Rust backend, all behind `cfg(windows)`:
+
+- `pty.rs` spawns `$SHELL -l` instead of `cmd.exe`, merges PATH with `:` plus `~/.local/bin`
+  and friends, and kills children with `pkill -P` instead of `taskkill /T`.
+- A `cwd` that does not exist (a Windows path in a synced setting) falls back to `$HOME`.
+- `speech.rs` plays WAVs with `paplay`/`aplay` and falls back to `espeak-ng`/`spd-say`
+  instead of SAPI. Piper defaults to `~/.local/share/piper`.
+- `update.rs` is Windows only. On Linux the Update button tells the user to install the
+  newest `.deb`; there is no in place self update.
+- ConPTY is Windows only and is not needed on Linux, where portable-pty uses real ptys.
+
 **ConPTY sideload (terminal scrollback depends on it).** `src-tauri\conpty\` holds a modern
 `conpty.dll` + `OpenConsole.exe` (from the Windows Terminal project, via node-pty). They must
 sit in the same folder as `agent-launcher.exe` wherever it runs: portable-pty prefers a

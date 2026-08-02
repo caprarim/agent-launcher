@@ -1,5 +1,8 @@
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
+#[cfg(windows)]
 use std::path::{Path, PathBuf};
+#[cfg(windows)]
 use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
@@ -7,10 +10,15 @@ use tauri::State;
 
 use crate::SharedState;
 
+#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+#[cfg(windows)]
 const DETACHED_PROCESS: u32 = 0x0000_0008;
+#[cfg(windows)]
 const INSTALL_DIR_NAME: &str = "Agent Launcher ADE";
+#[cfg(windows)]
 const APP_EXE_NAME: &str = "agent-launcher.exe";
+#[cfg(windows)]
 const SIDECARS: [&str; 2] = ["conpty.dll", "OpenConsole.exe"];
 
 #[derive(Serialize)]
@@ -24,6 +32,7 @@ pub struct UpdateInfo {
     pub message: String,
 }
 
+#[cfg(windows)]
 fn mtime_ms(path: &Path) -> u64 {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
@@ -33,6 +42,7 @@ fn mtime_ms(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
+#[cfg(windows)]
 fn install_dir() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -40,6 +50,7 @@ fn install_dir() -> PathBuf {
     base.join(INSTALL_DIR_NAME)
 }
 
+#[cfg(windows)]
 fn search_roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
     if let Ok(custom) = std::env::var("AGENT_LAUNCHER_UPDATE_DIR") {
@@ -59,6 +70,7 @@ fn search_roots() -> Vec<PathBuf> {
 /// The freshest built `agent-launcher.exe` across the known build outputs. The
 /// update copies that file straight over the installed one, so its timestamp is
 /// what both sides of the comparison are measured against.
+#[cfg(windows)]
 fn newest_build() -> Option<(PathBuf, u64)> {
     let mut best: Option<(PathBuf, u64)> = None;
     for root in search_roots() {
@@ -74,6 +86,7 @@ fn newest_build() -> Option<(PathBuf, u64)> {
     best
 }
 
+#[cfg(windows)]
 fn running_exe() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from(APP_EXE_NAME))
 }
@@ -81,6 +94,7 @@ fn running_exe() -> PathBuf {
 /// What the running app counts as "the build I am on". Copy-Item preserves the
 /// source timestamp, so after an update the installed exe carries exactly the
 /// build time of the exe it was copied from and compares cleanly.
+#[cfg(windows)]
 fn baseline_built() -> u64 {
     let running = running_exe();
     let running_built = mtime_ms(&running);
@@ -96,6 +110,7 @@ fn baseline_built() -> u64 {
     }
 }
 
+#[cfg(windows)]
 #[tauri::command(async)]
 pub fn update_check() -> UpdateInfo {
     let current_built = baseline_built();
@@ -124,6 +139,7 @@ pub fn update_check() -> UpdateInfo {
     }
 }
 
+#[cfg(windows)]
 fn ps_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
@@ -136,6 +152,7 @@ fn ps_quote(value: &str) -> String {
 /// the old build. The install folder only ever holds the exe plus its two conpty
 /// sidecars, so copying those files is the whole update, with the installer kept
 /// only as a fallback and every step written to update.log.
+#[cfg(windows)]
 #[tauri::command(async)]
 pub fn update_apply(app: tauri::AppHandle, state: State<'_, SharedState>) -> Result<(), String> {
     let Some((source, _built)) = newest_build() else {
@@ -245,6 +262,7 @@ pub fn update_apply(app: tauri::AppHandle, state: State<'_, SharedState>) -> Res
     Ok(())
 }
 
+#[cfg(windows)]
 fn installer_for(root: &Path) -> Option<PathBuf> {
     let mut best: Option<(PathBuf, u64)> = None;
     let rd = std::fs::read_dir(root.join("bundle").join("nsis")).ok()?;
@@ -260,4 +278,23 @@ fn installer_for(root: &Path) -> Option<PathBuf> {
         }
     }
     best.map(|(p, _)| p)
+}
+
+#[cfg(not(windows))]
+#[tauri::command(async)]
+pub fn update_check() -> UpdateInfo {
+    UpdateInfo {
+        available: false,
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        current_built: 0,
+        newest_built: 0,
+        source: String::new(),
+        message: "Update by installing the newest .deb from GitHub Releases".to_string(),
+    }
+}
+
+#[cfg(not(windows))]
+#[tauri::command(async)]
+pub fn update_apply(_app: tauri::AppHandle, _state: State<'_, SharedState>) -> Result<(), String> {
+    Err("On Linux, download the newest .deb from GitHub Releases and run sudo apt install ./agent-launcher.deb".to_string())
 }

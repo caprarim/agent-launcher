@@ -96,13 +96,31 @@ fn wait_current(gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<Child>>>) 
     }
 }
 
+fn piper_defaults() -> (PathBuf, PathBuf) {
+    #[cfg(windows)]
+    {
+        (
+            PathBuf::from("D:\\ai\\piper\\piper\\piper.exe"),
+            PathBuf::from("D:\\ai\\piper\\piper\\en_US-amy-medium.onnx"),
+        )
+    }
+    #[cfg(not(windows))]
+    {
+        let base = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("/opt"))
+            .join(".local/share/piper");
+        (base.join("piper"), base.join("en_US-amy-medium.onnx"))
+    }
+}
+
 fn piper_paths() -> (PathBuf, PathBuf) {
+    let (default_exe, default_model) = piper_defaults();
     let exe = std::env::var("AGENT_PIPER_EXE")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("D:\\ai\\piper\\piper\\piper.exe"));
+        .unwrap_or(default_exe);
     let model = std::env::var("AGENT_PIPER_MODEL")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("D:\\ai\\piper\\piper\\en_US-amy-medium.onnx"));
+        .unwrap_or(default_model);
     (exe, model)
 }
 
@@ -155,6 +173,7 @@ fn speak_piper(text: &str, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option
     play_wav(&out_wav, gen, g, slot)
 }
 
+#[cfg(windows)]
 fn play_wav(path: &Path, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<Child>>>) -> bool {
     let script = format!(
         "(New-Object System.Media.SoundPlayer '{}').PlaySync()",
@@ -162,7 +181,6 @@ fn play_wav(path: &Path, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<C
     );
     let mut cmd = std::process::Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script]);
-    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
@@ -174,7 +192,25 @@ fn play_wav(path: &Path, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<C
     wait_current(gen, g, slot) || g < gen.load(Ordering::SeqCst)
 }
 
+#[cfg(not(windows))]
+fn play_wav(path: &Path, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<Child>>>) -> bool {
+    use std::process::Stdio;
+    let file = path.to_string_lossy().to_string();
+    for (bin, args) in [("paplay", vec![]), ("aplay", vec!["-q"])] {
+        let mut cmd = std::process::Command::new(bin);
+        cmd.args(args);
+        cmd.arg(&file);
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        if let Ok(child) = cmd.spawn() {
+            *slot.lock() = Some(child);
+            return wait_current(gen, g, slot) || g < gen.load(Ordering::SeqCst);
+        }
+    }
+    false
+}
+
 /// Fallback TTS via Windows SAPI, using the clearest installed voice.
+#[cfg(windows)]
 fn speak_sapi(text: &str, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<Child>>>) {
     let escaped = text.replace('\'', "''");
     let script = format!(
@@ -188,7 +224,6 @@ fn speak_sapi(text: &str, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<
     );
     let mut cmd = std::process::Command::new("powershell");
     cmd.args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script]);
-    #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
@@ -199,6 +234,30 @@ fn speak_sapi(text: &str, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<
     if let Ok(child) = cmd.spawn() {
         *slot.lock() = Some(child);
         let _ = wait_current(gen, g, slot);
+    }
+}
+
+/// Fallback TTS on Linux, espeak-ng first then speech-dispatcher.
+#[cfg(not(windows))]
+fn speak_sapi(text: &str, gen: &Arc<AtomicU64>, g: u64, slot: &Arc<Mutex<Option<Child>>>) {
+    use std::process::Stdio;
+    if g < gen.load(Ordering::SeqCst) {
+        return;
+    }
+    for (bin, args) in [
+        ("espeak-ng", vec!["-s", "170", "-v", "en-us"]),
+        ("espeak", vec!["-s", "170", "-v", "en-us"]),
+        ("spd-say", vec!["-w"]),
+    ] {
+        let mut cmd = std::process::Command::new(bin);
+        cmd.args(args);
+        cmd.arg(text);
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        if let Ok(child) = cmd.spawn() {
+            *slot.lock() = Some(child);
+            let _ = wait_current(gen, g, slot);
+            return;
+        }
     }
 }
 

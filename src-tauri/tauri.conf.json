@@ -29,6 +29,16 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "icon": ["icons/icon.ico", "icons/128x128.png", "icons/32x32.png"]
+    "icon": ["icons/icon.ico", "icons/128x128.png", "icons/32x32.png"],
+    "category": "DeveloperTool",
+    "shortDescription": "Voice driven agent development environment",
+    "longDescription": "Agent Launcher ADE launches Claude Code agents in PTY terminal cards on a canvas, routes prompts to them by voice, and reads their output back.",
+    "linux": {
+      "deb": {
+        "recommends": ["espeak-ng", "alsa-utils", "pulseaudio-utils"],
+        "section": "devel",
+        "priority": "optional"
+      }
+    }
   }
 }

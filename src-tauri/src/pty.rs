@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+#[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Sender};
@@ -57,6 +58,7 @@ pub struct PtyCreateResult {
     pub existing: bool,
 }
 
+#[cfg(windows)]
 fn registry_path(root: &str, key: &str) -> String {
     let out = std::process::Command::new("reg")
         .args(["query", root, "/v", key])
@@ -77,6 +79,7 @@ fn registry_path(root: &str, key: &str) -> String {
     String::new()
 }
 
+#[cfg(windows)]
 fn expand_vars(value: &str) -> String {
     let mut result = value.to_string();
     while let Some(start) = result.find('%') {
@@ -99,6 +102,7 @@ fn expand_vars(value: &str) -> String {
     result
 }
 
+#[cfg(windows)]
 pub fn merged_path() -> String {
     let machine = registry_path(
         "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
@@ -121,6 +125,39 @@ pub fn merged_path() -> String {
         }
     }
     merged.join(";")
+}
+
+#[cfg(not(windows))]
+pub fn merged_path() -> String {
+    let current = std::env::var("PATH").unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    let mut merged: Vec<String> = Vec::new();
+    for dir in current.split(':') {
+        let d = dir.trim();
+        if !d.is_empty() && seen.insert(d.trim_end_matches('/').to_string()) {
+            merged.push(d.to_string());
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        for extra in [".local/bin", ".npm-global/bin", ".bun/bin", ".cargo/bin"] {
+            let p = home.join(extra);
+            let s = p.to_string_lossy().to_string();
+            if p.is_dir() && seen.insert(s.trim_end_matches('/').to_string()) {
+                merged.push(s);
+            }
+        }
+    }
+    merged.join(":")
+}
+
+const PATH_VAR: &str = if cfg!(windows) { "Path" } else { "PATH" };
+
+fn login_shell() -> (String, Vec<String>) {
+    if cfg!(windows) {
+        return ("cmd.exe".to_string(), Vec::new());
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+    (shell, vec!["-l".to_string()])
 }
 
 #[tauri::command(async)]
@@ -151,14 +188,23 @@ fn create_inner(
         pixel_height: 0,
     })?;
 
-    let mut cmd = CommandBuilder::new(if cfg!(windows) { "cmd.exe" } else { "bash" });
-    let cwd = if opts.cwd.is_empty() {
-        dirs::home_dir().unwrap_or(PathBuf::from("C:\\")).to_string_lossy().to_string()
+    let (shell, shell_args) = login_shell();
+    let mut cmd = CommandBuilder::new(shell);
+    for arg in shell_args {
+        cmd.arg(arg);
+    }
+    let fallback_home = if cfg!(windows) { "C:\\" } else { "/" };
+    let home = dirs::home_dir()
+        .unwrap_or(PathBuf::from(fallback_home))
+        .to_string_lossy()
+        .to_string();
+    let cwd = if opts.cwd.is_empty() || !PathBuf::from(&opts.cwd).is_dir() {
+        home
     } else {
         opts.cwd.clone()
     };
     cmd.cwd(&cwd);
-    cmd.env("Path", merged_path());
+    cmd.env(PATH_VAR, merged_path());
     cmd.env("TERM", "xterm-256color");
     if let Some(dir) = &opts.config_dir {
         if !dir.is_empty() {
@@ -338,10 +384,19 @@ pub fn kill_all(state: &SharedState) {
     };
     for mut s in sessions {
         if let Some(pid) = s.child.process_id() {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/F", "/T", "/PID", &pid.to_string()])
-                .creation_flags(0x0800_0000)
-                .output();
+            #[cfg(windows)]
+            {
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/T", "/PID", &pid.to_string()])
+                    .creation_flags(0x0800_0000)
+                    .output();
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = std::process::Command::new("pkill")
+                    .args(["-TERM", "-P", &pid.to_string()])
+                    .output();
+            }
         }
         let _ = s.child.kill();
     }

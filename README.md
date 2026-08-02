@@ -1,5 +1,41 @@
 # Agent Launcher
 
+## Linux (Ubuntu) install
+
+Download the newest `.deb` from [Releases](https://github.com/caprarim/agent-launcher/releases/latest) and install it:
+
+```bash
+sudo apt install ./Agent\ Launcher\ ADE_*_amd64.deb
+```
+
+Then launch **Agent Launcher ADE** from your app menu, or run `agent-launcher` in a terminal.
+An `.AppImage` is published alongside the `.deb` if you would rather not install anything:
+
+```bash
+chmod +x Agent*.AppImage && ./Agent*.AppImage
+```
+
+Optional extras for voice output: `sudo apt install espeak-ng alsa-utils`.
+`claude` must be on your PATH for agents to launch.
+
+### Building the .deb yourself
+
+The `.deb` is built by GitHub Actions on a free Ubuntu 22.04 runner
+(`.github/workflows/linux-build.yml`) because Tauri cannot cross compile from Windows.
+Push a `v*` tag to publish a release, or run the workflow manually and download the
+artifact. To build on your own Ubuntu machine:
+
+```bash
+sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev libssl-dev libasound2-dev build-essential curl wget file
+npm ci
+npm run tauri:linux
+```
+
+Bundles land in `src-tauri/target/release/bundle/deb` and `.../appimage`.
+
+---
+
 A clean Electron desktop app that lets you spawn multiple AI coding agents (Codex, Claude, Gemini) with one click — each in its own terminal window.
 
 ## Screenshot
