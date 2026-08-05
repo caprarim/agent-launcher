@@ -49,13 +49,22 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
 
   const startDrag = useDragResize(cardRef, agent, (patch) => updateAgent(agent.id, patch));
 
-  const focusHere = () => {
-    reclaimWindowFocus();
-    bringToFront(agent.id);
+  const ensureFocus = (tries = 5) => {
     const term = termRef.current;
     if (!term) return;
     term.focus();
-    window.setTimeout(() => term.focus(), 0);
+    const el = document.activeElement as HTMLElement | null;
+    const landed = !!el
+      && el.classList.contains('xterm-helper-textarea')
+      && !!cardRef.current?.contains(el);
+    if (landed || tries <= 0) return;
+    window.requestAnimationFrame(() => ensureFocus(tries - 1));
+  };
+
+  const focusHere = () => {
+    reclaimWindowFocus();
+    bringToFront(agent.id);
+    ensureFocus();
   };
   const beginDrag = (e: React.PointerEvent, mode: 'move' | 'resize' | 'resize-r' | 'resize-b') => {
     if (agent.expanded || focused) return;
@@ -83,6 +92,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
     fitRef.current = fit;
 
     let disposed = false;
+    let deadNotified = false;
     let ptyLive = false;
     let sentCols = 0;
     let sentRows = 0;
@@ -192,7 +202,12 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
           updateAgent(agent.id, { status: 'working' });
         }
       }
-      void backend.ptyWrite(agent.id, d);
+      void backend.ptyWrite(agent.id, d).then((queued) => {
+        if (queued !== false || deadNotified) return;
+        deadNotified = true;
+        updateAgent(agent.id, { status: 'exited' });
+        term.write('\r\n\x1b[33mthis terminal is gone, press the relaunch button to start it again\x1b[0m\r\n');
+      }).catch(() => {});
     });
 
     const command = settings.claudeCommand || 'claude';

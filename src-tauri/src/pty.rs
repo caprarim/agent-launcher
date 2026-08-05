@@ -363,10 +363,10 @@ fn contains_work_marker(recent: &str) -> bool {
 }
 
 #[tauri::command(async)]
-pub fn pty_write(state: State<'_, SharedState>, id: String, data: String) {
+pub fn pty_write(state: State<'_, SharedState>, id: String, data: String) -> bool {
     let input = {
         let mut ptys = state.ptys.lock();
-        let Some(s) = ptys.get_mut(&id) else { return };
+        let Some(s) = ptys.get_mut(&id) else { return false };
         if data.contains('\r') || data.contains('\n') {
             s.saw_input = true;
             s.busy_for = Duration::ZERO;
@@ -375,7 +375,7 @@ pub fn pty_write(state: State<'_, SharedState>, id: String, data: String) {
         }
         s.input.clone()
     };
-    let _ = input.send(data.into_bytes());
+    input.send(data.into_bytes()).is_ok()
 }
 
 #[tauri::command(async)]

@@ -49,6 +49,8 @@ pub fn browser_hide(app: tauri::AppHandle) -> Result<(), String> {
     let window = app.get_window("main").ok_or("no main window")?;
     if let Some(view) = find(&window) {
         let _ = view.hide();
+        let _ = view.set_size(LogicalSize::new(1.0, 1.0));
+        let _ = view.set_position(LogicalPosition::new(-4000.0, -4000.0));
     }
     Ok(())
 }

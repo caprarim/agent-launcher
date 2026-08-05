@@ -35,6 +35,9 @@ pub fn debug_log(app: tauri::AppHandle, line: String) {
 #[tauri::command]
 pub fn focus_main(app: tauri::AppHandle) {
     if let Some(w) = app.get_window("main") {
+        if w.is_focused().unwrap_or(false) && !w.is_minimized().unwrap_or(false) {
+            return;
+        }
         let _ = w.unminimize();
         let _ = w.show();
         let _ = w.set_focus();

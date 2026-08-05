@@ -15,7 +15,7 @@ export interface PtyCreateArgs {
 export const backend = {
   ptyCreate: (opts: PtyCreateArgs) =>
     invoke<{ success: boolean; pid?: number; error?: string; existing?: boolean }>('pty_create', { opts }),
-  ptyWrite: (id: string, data: string) => invoke<void>('pty_write', { id, data }),
+  ptyWrite: (id: string, data: string) => invoke<boolean>('pty_write', { id, data }),
   ptyResize: (id: string, cols: number, rows: number) => invoke<void>('pty_resize', { id, cols, rows }),
   ptyKill: (id: string) => invoke<void>('pty_kill', { id }),
   ptyOutput: (id: string, tail = 4000, raw = false) =>
