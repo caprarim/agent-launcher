@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
@@ -228,8 +228,25 @@ fn create_inner(
     let (input_tx, input_rx) = channel::<Vec<u8>>();
     std::thread::spawn(move || {
         while let Ok(chunk) = input_rx.recv() {
-            if writer.write_all(&chunk).is_err() {
-                break;
+            let mut rest: &[u8] = &chunk;
+            let mut stalls = 0u32;
+            while !rest.is_empty() {
+                match writer.write(rest) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        rest = &rest[n..];
+                        stalls = 0;
+                    }
+                    Err(e) if e.kind() == ErrorKind::Interrupted => {}
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        stalls += 1;
+                        if stalls > 600 {
+                            break;
+                        }
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
             }
             let _ = writer.flush();
         }

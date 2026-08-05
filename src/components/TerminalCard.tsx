@@ -278,6 +278,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
   return (
     <div
       ref={cardRef}
+      data-agent-id={agent.id}
       className={`card${agent.expanded ? ' expanded' : ''}${agent.minimized ? ' minimized' : ''}${focused ? ' focused' : ''}`}
       style={geo}
       onPointerDown={focusHere}

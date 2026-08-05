@@ -5,7 +5,7 @@ import SettingsPanel from './SettingsPanel';
 import AccountSwitcher from './AccountSwitcher';
 import UpdateButton from './UpdateButton';
 import { useStore } from '../lib/store';
-import { feedTerminal, onEvent, readScreen, dlog } from '../lib/backend';
+import { backend, feedTerminal, onEvent, readScreen, dlog } from '../lib/backend';
 import { bindTalkKey } from '../lib/voice';
 import { noteEvent, launchAgents } from '../lib/orchestrator';
 import { bottom, detectAsking, isBusyScreen, isIdleScreen } from '../lib/screen';
@@ -166,6 +166,58 @@ export default function App() {
     const un = onEvent('focus-exit', () => setFocusAgent(null));
     return () => { void un.then((fn) => fn()); };
   }, [setFocusAgent]);
+
+  useEffect(() => {
+    let sawDown = false;
+    const escTarget = (): string | null => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el) {
+        const tag = el.tagName.toLowerCase();
+        const editable = tag === 'input' || tag === 'select' || el.isContentEditable
+          || (tag === 'textarea' && !el.classList.contains('xterm-helper-textarea'));
+        if (editable) return null;
+        const card = el.closest('[data-agent-id]');
+        const owned = card?.getAttribute('data-agent-id');
+        if (owned) return owned;
+      }
+      const st = useStore.getState();
+      if (st.settingsOpen || st.paletteOpen) return null;
+      if (st.focusAgentId) return st.focusAgentId;
+      const pool = st.agents.filter(
+        (a) => a.workspaceId === st.activeWorkspaceId && a.status !== 'exited' && !a.minimized,
+      );
+      if (!pool.length) return null;
+      return pool.reduce((top, a) => (a.z > top.z ? a : top), pool[0]).id;
+    };
+    const send = (e: KeyboardEvent) => {
+      const id = escTarget();
+      if (!id) return false;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      void backend.ptyWrite(id, '\x1b');
+      dlog(`esc sent to ${id}`);
+      return true;
+    };
+    const onDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.altKey || e.ctrlKey || e.metaKey) return;
+      sawDown = true;
+      send(e);
+    };
+    const onUp = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (sawDown) {
+        sawDown = false;
+        return;
+      }
+      send(e);
+    };
+    window.addEventListener('keydown', onDown, true);
+    window.addEventListener('keyup', onUp, true);
+    return () => {
+      window.removeEventListener('keydown', onDown, true);
+      window.removeEventListener('keyup', onUp, true);
+    };
+  }, []);
 
   useEffect(() => {
     if (!tileMode || !layoutKey || focusId) return;
