@@ -34,3 +34,6 @@ dirs = "6"
 [profile.release]
 opt-level = 2
 lto = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"

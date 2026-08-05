@@ -363,7 +363,11 @@ fn contains_work_marker(recent: &str) -> bool {
 }
 
 #[tauri::command(async)]
-pub fn pty_write(state: State<'_, SharedState>, id: String, data: String) -> bool {
+pub fn pty_write(app: AppHandle, state: State<'_, SharedState>, id: String, data: String) -> bool {
+    if data.len() <= 4 && data.chars().any(|c| c.is_control() && c != '\r' && c != '\n') {
+        let hex: Vec<String> = data.bytes().map(|b| format!("{:02x}", b)).collect();
+        crate::files::log_line(&app, &format!("pty_write {} bytes={}", id, hex.join(" ")));
+    }
     let input = {
         let mut ptys = state.ptys.lock();
         let Some(s) = ptys.get_mut(&id) else { return false };

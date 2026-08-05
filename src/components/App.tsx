@@ -169,6 +169,7 @@ export default function App() {
 
   useEffect(() => {
     let sawDown = false;
+    let lastEscAt = 0;
     const escTarget = (): string | null => {
       const el = document.activeElement as HTMLElement | null;
       if (el) {
@@ -189,19 +190,29 @@ export default function App() {
       if (!pool.length) return null;
       return pool.reduce((top, a) => (a.z > top.z ? a : top), pool[0]).id;
     };
-    const send = (e: KeyboardEvent) => {
+    const send = (phase: string): boolean => {
+      const now = Date.now();
+      if (now - lastEscAt < 100) return true;
+      const el = document.activeElement as HTMLElement | null;
+      const where = el ? `${el.tagName.toLowerCase()}.${el.className || 'none'}`.slice(0, 60) : 'null';
       const id = escTarget();
-      if (!id) return false;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      void backend.ptyWrite(id, '\x1b');
-      dlog(`esc sent to ${id}`);
+      if (!id) {
+        dlog(`esc ${phase} no target, focus=${where}`);
+        return false;
+      }
+      lastEscAt = now;
+      void backend.ptyWrite(id, '\x1b')
+        .then((queued) => dlog(`esc ${phase} to ${id} queued=${queued} focus=${where}`))
+        .catch((err) => dlog(`esc ${phase} to ${id} failed ${String(err).slice(0, 80)}`));
       return true;
     };
     const onDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.altKey || e.ctrlKey || e.metaKey) return;
       sawDown = true;
-      send(e);
+      if (send('keydown')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
     };
     const onUp = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.altKey || e.ctrlKey || e.metaKey) return;
@@ -209,13 +220,18 @@ export default function App() {
         sawDown = false;
         return;
       }
-      send(e);
+      if (send('keyup')) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      }
     };
     window.addEventListener('keydown', onDown, true);
     window.addEventListener('keyup', onUp, true);
+    const un = onEvent('hw-escape', () => { send('native'); });
     return () => {
       window.removeEventListener('keydown', onDown, true);
       window.removeEventListener('keyup', onUp, true);
+      void un.then((fn) => fn());
     };
   }, []);
 

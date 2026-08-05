@@ -39,8 +39,29 @@ impl AppState {
 
 pub type SharedState = Arc<AppState>;
 
+#[cfg(target_os = "linux")]
+fn install_escape_hook(app: &tauri::AppHandle) {
+    use gtk::prelude::*;
+    let Some(win) = app.get_webview_window("main") else { return };
+    let Ok(gtk_win) = win.gtk_window() else { return };
+    let handle = app.clone();
+    gtk_win.connect_key_press_event(move |_w, ev| {
+        if ev.keyval() == gtk::gdk::keys::constants::Escape {
+            let _ = handle.emit("hw-escape", ());
+        }
+        gtk::glib::Propagation::Proceed
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        if std::env::var_os("GTK_IM_MODULE").is_none() {
+            std::env::set_var("GTK_IM_MODULE", "gtk-im-context-simple");
+        }
+    }
+
     let state: SharedState = Arc::new(AppState::new());
 
     tauri::Builder::default()
@@ -96,6 +117,8 @@ pub fn run() {
                 let _ = w.show();
                 let _ = w.set_focus();
             }
+            #[cfg(target_os = "linux")]
+            install_escape_hook(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
