@@ -21,6 +21,7 @@ export const backend = {
   ptyOutput: (id: string, tail = 4000, raw = false) =>
     invoke<string>('pty_output', { id, tail, raw }),
   focusMain: () => invoke<void>('focus_main').catch(() => {}),
+  clipboardImageFile: () => invoke<string>('clipboard_image_file'),
   setUiZoom: (factor: number) => invoke<void>('set_ui_zoom', { factor }),
   focusMode: (on: boolean, width: number, height: number, title?: string) =>
     invoke<void>('focus_mode', { on, width, height, title }),

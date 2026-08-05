@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
-import { readText } from '@tauri-apps/plugin-clipboard-manager';
+import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import '@xterm/xterm/css/xterm.css';
 import { AgentCard } from '../lib/types';
 import { useStore } from '../lib/store';
@@ -108,24 +108,46 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
       void backend.ptyResize(agent.id, term.cols, term.rows);
     };
 
-    // Dictation tools (Whisperflow, ColdVoice) inject their transcript via a
-    // clipboard-write + synthetic Ctrl+V. The webview's navigator.clipboard
-    // API is unreliable here (WebView2 can silently deny programmatic reads),
-    // so route paste through Tauri's clipboard-manager plugin instead, which
-    // reads the OS clipboard directly. preventDefault is load-bearing: without
-    // it the browser's native paste event can also fire, double-pasting.
+    const wheelEl = termHost.current;
+
+    let nativePasteAt = 0;
+    const onNativePaste = (ev: ClipboardEvent) => {
+      if (ev.clipboardData?.getData('text/plain')) nativePasteAt = Date.now();
+    };
+    wheelEl.addEventListener('paste', onNativePaste as EventListener, true);
+
+    const pasteFallback = async (pending: Promise<string | null>, firedAt: number) => {
+      const text = await pending;
+      if (nativePasteAt >= firedAt) return;
+      if (text) {
+        term.paste(text);
+        return;
+      }
+      const path = await backend.clipboardImageFile().catch(() => null);
+      if (nativePasteAt >= firedAt) return;
+      if (path) term.paste(`${path} `);
+    };
+
     term.attachCustomKeyEventHandler((e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v' && e.type === 'keydown') {
-        e.preventDefault();
-        readText().then((text) => {
-          if (text) term.paste(text);
-        });
+      if (e.type !== 'keydown') return true;
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return true;
+      const isC = e.code === 'KeyC' || (e.key || '').toLowerCase() === 'c';
+      if (isC && e.shiftKey) {
+        const sel = term.getSelection();
+        if (sel) void writeText(sel).catch(() => {});
         return false;
       }
-      return true;
+      const isV = e.code === 'KeyV' || (e.key || '').toLowerCase() === 'v';
+      if (!isV) return true;
+      const firedAt = Date.now();
+      const pending = readText().catch(() => null);
+      window.setTimeout(() => {
+        if (nativePasteAt >= firedAt) return;
+        void pasteFallback(pending, firedAt);
+      }, 40);
+      return false;
     });
 
-    const wheelEl = termHost.current;
     const cellHeight = 12 * 1.25;
     let wheelRemainder = 0;
     const onWheel = (ev: WheelEvent) => {
@@ -235,6 +257,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
       for (const t of settleTimers) window.clearTimeout(t);
       ro.disconnect();
       wheelEl.removeEventListener('wheel', onWheel, { capture: true } as EventListenerOptions);
+      wheelEl.removeEventListener('paste', onNativePaste as EventListener, true);
       unbindScreen();
       unbind();
       term.dispose();

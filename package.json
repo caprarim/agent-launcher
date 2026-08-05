@@ -1,6 +1,6 @@
 {
   "name": "agent-terminals",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Agent Launcher ADE: voice-driven orchestrator commanding AI coding agents",
   "type": "module",
   "scripts": {

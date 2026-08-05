@@ -1,6 +1,7 @@
 use serde::Serialize;
 use std::io::Write as IoWrite;
 use tauri::Manager;
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 pub fn log_path(app: &tauri::AppHandle) -> std::path::PathBuf {
     app.path()
@@ -38,6 +39,60 @@ pub fn focus_main(app: tauri::AppHandle) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+}
+
+fn prune_pasted_images(dir: &std::path::Path, keep: usize) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<_> = rd
+        .flatten()
+        .filter(|e| e.path().extension().map(|x| x == "png").unwrap_or(false))
+        .collect();
+    if files.len() <= keep {
+        return;
+    }
+    files.sort_by_key(|e| {
+        e.metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+    });
+    for e in files.iter().take(files.len() - keep) {
+        let _ = std::fs::remove_file(e.path());
+    }
+}
+
+#[tauri::command]
+pub fn clipboard_image_file(app: tauri::AppHandle) -> Result<String, String> {
+    let image = app.clipboard().read_image().map_err(|e| e.to_string())?;
+    let width = image.width();
+    let height = image.height();
+    if width == 0 || height == 0 {
+        return Err("clipboard image is empty".into());
+    }
+    let rgba = image.rgba().to_vec();
+
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("pasted-images");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let path = dir.join(format!("paste-{}.png", stamp));
+
+    let file = std::fs::File::create(&path).map_err(|e| e.to_string())?;
+    let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| e.to_string())?;
+    writer.write_image_data(&rgba).map_err(|e| e.to_string())?;
+    writer.finish().map_err(|e| e.to_string())?;
+
+    prune_pasted_images(&dir, 20);
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[derive(Serialize)]

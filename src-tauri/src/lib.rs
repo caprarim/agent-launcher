@@ -72,6 +72,7 @@ pub fn run() {
             accounts::create_account,
             files::debug_log,
             files::focus_main,
+            files::clipboard_image_file,
             files::list_dir,
             files::read_text_file,
             files::write_text_file,

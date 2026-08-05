@@ -38,6 +38,14 @@ body {
   user-select: none;
 }
 
+input,
+textarea,
+[contenteditable="true"],
+.xterm .xterm-helper-textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 button {
   font: inherit;
   color: inherit;

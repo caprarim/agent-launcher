@@ -180,7 +180,7 @@ function EditorTab({ ws }: { ws: WorkspaceState }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, [dock.editorPath, content]);
 
   return (
     <div className="edt">
