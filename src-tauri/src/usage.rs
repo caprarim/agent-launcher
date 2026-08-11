@@ -11,9 +11,9 @@ use crate::SharedState;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
-const FRESH_TTL: Duration = Duration::from_secs(15);
-const ERROR_TTL: Duration = Duration::from_secs(30);
-const LOCAL_FRESH_MS: u64 = 20 * 1000;
+const API_MIN_INTERVAL: Duration = Duration::from_secs(60);
+const API_MAX_INTERVAL: Duration = Duration::from_secs(300);
+const LOCAL_REREAD: Duration = Duration::from_secs(2);
 const LOCAL_MAX_AGE_MS: u64 = 6 * 60 * 60 * 1000;
 
 static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
@@ -23,8 +23,28 @@ static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
         .expect("usage client")
 });
 
-static CACHE: Lazy<Mutex<HashMap<String, (Instant, Usage)>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+#[derive(Clone)]
+struct Entry {
+    best: Option<(u64, Usage)>,
+    last_local: Option<Instant>,
+    next_api: Option<Instant>,
+    backoff: Duration,
+    error: Option<String>,
+}
+
+impl Default for Entry {
+    fn default() -> Self {
+        Entry {
+            best: None,
+            last_local: None,
+            next_api: None,
+            backoff: API_MIN_INTERVAL,
+            error: None,
+        }
+    }
+}
+
+static STATE: Lazy<Mutex<HashMap<String, Entry>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 static INFLIGHT: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
 
@@ -131,8 +151,7 @@ fn local(config_dir: &Option<String>) -> Option<(u64, Usage)> {
     if out.session.is_none() && out.week.is_none() {
         return None;
     }
-    let age = now_ms().saturating_sub(fetched);
-    Some((age, out))
+    Some((fetched, out))
 }
 
 async fn fetch(config_dir: &Option<String>) -> Result<Usage, String> {
@@ -159,33 +178,15 @@ async fn fetch(config_dir: &Option<String>) -> Result<Usage, String> {
     Ok(out)
 }
 
-async fn resolve(config_dir: Option<String>) -> Usage {
-    let local_now = local(&config_dir);
-    if let Some((age, out)) = &local_now {
-        if *age <= LOCAL_FRESH_MS {
-            let mut out = out.clone();
-            out.age_ms = *age;
-            return out;
-        }
-    }
-
-    match fetch(&config_dir).await {
-        Ok(u) => u,
-        Err(e) => match local_now {
-            Some((age, mut out)) if age <= LOCAL_MAX_AGE_MS => {
-                out.age_ms = age;
-                out.error = Some(e);
-                out
-            }
-            _ => Usage {
-                session: None,
-                week: None,
-                source: "none".into(),
-                age_ms: 0,
-                account: None,
-                error: Some(e),
-            },
-        },
+fn absorb(key: &str, fetched: u64, usage: Usage) {
+    let mut guard = STATE.lock();
+    let entry = guard.entry(key.to_string()).or_default();
+    let newer = match &entry.best {
+        Some((have, _)) => fetched > *have,
+        None => true,
+    };
+    if newer {
+        entry.best = Some((fetched, usage));
     }
 }
 
@@ -204,36 +205,128 @@ pub async fn usage_get(
         .or_else(|| std::env::var("CLAUDE_CONFIG_DIR").ok().filter(|d| !d.is_empty()));
     let key = dir.clone().unwrap_or_default();
 
-    if let Some((at, cached)) = CACHE.lock().get(&key).cloned() {
-        let ttl = if cached.error.is_some() { ERROR_TTL } else { FRESH_TTL };
-        if at.elapsed() < ttl {
-            return Ok(cached);
+    let read_local = {
+        let mut guard = STATE.lock();
+        let entry = guard.entry(key.clone()).or_default();
+        match entry.last_local {
+            Some(at) if at.elapsed() < LOCAL_REREAD => false,
+            _ => {
+                entry.last_local = Some(Instant::now());
+                true
+            }
+        }
+    };
+    if read_local {
+        if let Some((fetched, out)) = local(&dir) {
+            absorb(&key, fetched, out);
         }
     }
 
-    let _guard = INFLIGHT.lock().await;
-    if let Some((at, cached)) = CACHE.lock().get(&key).cloned() {
-        let ttl = if cached.error.is_some() { ERROR_TTL } else { FRESH_TTL };
-        if at.elapsed() < ttl {
-            return Ok(cached);
+    let due = {
+        let guard = STATE.lock();
+        guard
+            .get(&key)
+            .and_then(|e| e.next_api)
+            .map(|at| Instant::now() >= at)
+            .unwrap_or(true)
+    };
+
+    if due {
+        let _guard = INFLIGHT.lock().await;
+        let still_due = {
+            let mut inner = STATE.lock();
+            let entry = inner.entry(key.clone()).or_default();
+            let ok = entry.next_api.map(|at| Instant::now() >= at).unwrap_or(true);
+            if ok {
+                entry.next_api = Some(Instant::now() + entry.backoff);
+            }
+            ok
+        };
+        if still_due {
+            let result = fetch(&dir).await;
+            let mut inner = STATE.lock();
+            let entry = inner.entry(key.clone()).or_default();
+            match result {
+                Ok(out) => {
+                    entry.backoff = API_MIN_INTERVAL;
+                    entry.next_api = Some(Instant::now() + API_MIN_INTERVAL);
+                    entry.error = None;
+                    let fetched = now_ms();
+                    let newer = match &entry.best {
+                        Some((have, _)) => fetched > *have,
+                        None => true,
+                    };
+                    if newer {
+                        entry.best = Some((fetched, out));
+                    }
+                }
+                Err(e) => {
+                    if e == "http 429" {
+                        entry.backoff = (entry.backoff * 2).min(API_MAX_INTERVAL);
+                    }
+                    entry.next_api = Some(Instant::now() + entry.backoff);
+                    entry.error = Some(e);
+                }
+            }
+            let snapshot = entry.clone();
+            drop(inner);
+            crate::files::log_line(
+                &app,
+                &format!(
+                    "usage_get dir={} source={} age={}s next={}s error={:?}",
+                    key.is_empty().then(|| "home".to_string()).unwrap_or(key.clone()),
+                    snapshot
+                        .best
+                        .as_ref()
+                        .map(|(_, u)| u.source.clone())
+                        .unwrap_or_else(|| "none".into()),
+                    snapshot
+                        .best
+                        .as_ref()
+                        .map(|(f, _)| now_ms().saturating_sub(*f) / 1000)
+                        .unwrap_or(0),
+                    snapshot.backoff.as_secs(),
+                    snapshot.error,
+                ),
+            );
         }
     }
 
-    let mut out = resolve(dir.clone()).await;
+    let (best, error) = {
+        let guard = STATE.lock();
+        match guard.get(&key) {
+            Some(e) => (e.best.clone(), e.error.clone()),
+            None => (None, None),
+        }
+    };
+
+    let mut out = match best {
+        Some((fetched, mut u)) => {
+            let age = now_ms().saturating_sub(fetched);
+            if age > LOCAL_MAX_AGE_MS {
+                Usage {
+                    session: None,
+                    week: None,
+                    source: "none".into(),
+                    age_ms: 0,
+                    account: None,
+                    error: error.clone().or(Some("stale".into())),
+                }
+            } else {
+                u.age_ms = age;
+                u.error = error.clone();
+                u
+            }
+        }
+        None => Usage {
+            session: None,
+            week: None,
+            source: "none".into(),
+            age_ms: 0,
+            account: None,
+            error: error.clone().or(Some("no usage yet".into())),
+        },
+    };
     out.account = account_email(&dir);
-    crate::files::log_line(
-        &app,
-        &format!(
-            "usage_get dir={} account={:?} source={} age={}s session={:?} week={:?} error={:?}",
-            dir.clone().unwrap_or_else(|| "home".into()),
-            out.account,
-            out.source,
-            out.age_ms / 1000,
-            out.session.as_ref().map(|w| w.percent),
-            out.week.as_ref().map(|w| w.percent),
-            out.error,
-        ),
-    );
-    CACHE.lock().insert(key, (Instant::now(), out.clone()));
     Ok(out)
 }
