@@ -18,6 +18,7 @@ function lastMeaningfulLine(text: string): string {
 }
 
 const CONFIRM_IDLE_MS = 2600;
+const DONE_MESSAGE = 'Clawd has finished working.';
 
 export default function App() {
   const settingsOpen = useStore((s) => s.settingsOpen);
@@ -109,6 +110,9 @@ export default function App() {
         dlog(`announce agent=${now.name} from=${now.status} asking=${asking} tail=${JSON.stringify(bottom(after, 4).slice(-160))}`);
         if (live.settings.announceDone) {
           playChime(asking ? 'asking' : 'done');
+        }
+        if (!asking) {
+          void backend.notifyAgentDone(DONE_MESSAGE);
         }
         noteEvent(asking
           ? `${now.name} is waiting for your input${now.taskLabel ? ` on ${now.taskLabel}` : ''} and needs an answer from you before it can continue`

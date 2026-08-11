@@ -4,6 +4,7 @@ mod control;
 mod files;
 mod focus;
 mod groq;
+mod notify;
 mod ollama;
 mod pty;
 mod speech;
@@ -94,6 +95,7 @@ pub fn run() {
             accounts::create_account,
             files::debug_log,
             files::focus_main,
+            notify::notify_agent_done,
             files::clipboard_image_file,
             files::list_dir,
             files::read_text_file,
