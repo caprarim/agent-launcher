@@ -42,6 +42,7 @@ function BrowserTab({ ws, hidden }: { ws: WorkspaceState; hidden: boolean }) {
   const settingsOpen = useStore((s) => s.settingsOpen);
   const dock = ws.dock;
   const [draft, setDraft] = useState(dock.url);
+  const [failed, setFailed] = useState(false);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const shown = useRef(false);
   const visible = !hidden && dock.open && dock.tab === 'browser' && !settingsOpen;
@@ -63,7 +64,9 @@ function BrowserTab({ ws, hidden }: { ws: WorkspaceState; hidden: boolean }) {
       if (r.width < 2 || r.height < 2) return;
       viewOwner = ws.id;
       shown.current = true;
-      void backend.browserShow(normalizeUrl(dock.url), r.left, r.top, r.width, r.height);
+      backend.browserShow(normalizeUrl(dock.url), r.left, r.top, r.width, r.height)
+        .then(() => setFailed(false))
+        .catch(() => setFailed(true));
     };
     sync();
     const ro = new ResizeObserver(sync);
@@ -90,14 +93,18 @@ function BrowserTab({ ws, hidden }: { ws: WorkspaceState; hidden: boolean }) {
     if (shown.current) void backend.browserNavigate(url);
   };
 
+  const back = () => void backend.browserNavAction('back');
+  const forward = () => void backend.browserNavAction('forward');
+  const reload = () => void backend.browserNavAction('reload');
+
   const device = DEVICE_PRESETS.find((d) => d.id === dock.device);
 
   return (
     <div className="brw">
       <div className="brw-bar">
-        <button className="brw-nav" title="Back" onClick={() => void backend.browserNavAction('back')}>‹</button>
-        <button className="brw-nav" title="Forward" onClick={() => void backend.browserNavAction('forward')}>›</button>
-        <button className="brw-nav" title="Reload" onClick={() => void backend.browserNavAction('reload')}>⟳</button>
+        <button className="brw-nav" title="Back" onClick={back}>‹</button>
+        <button className="brw-nav" title="Forward" onClick={forward}>›</button>
+        <button className="brw-nav" title="Reload" onClick={reload}>⟳</button>
         <input
           className="brw-url"
           value={draft}
@@ -123,11 +130,17 @@ function BrowserTab({ ws, hidden }: { ws: WorkspaceState; hidden: boolean }) {
         {device && <span className="brw-size">{device.w} x {device.h}</span>}
       </div>
       <div className={`brw-stage${device ? ' framed' : ''}`}>
-        <div
-          ref={stageRef}
-          className="brw-frame"
-          style={device ? { width: device.w, height: device.h } : undefined}
-        />
+        {failed ? (
+          <div className="brw-fail">
+            This display cannot host the docked browser. Use Open to view the page in your system browser.
+          </div>
+        ) : (
+          <div
+            ref={stageRef}
+            className="brw-frame"
+            style={device ? { width: device.w, height: device.h } : undefined}
+          />
+        )}
       </div>
     </div>
   );

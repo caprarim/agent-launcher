@@ -10,14 +10,16 @@ checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
 name = "agent-launcher"
-version = "2.0.1"
+version = "2.0.2"
 dependencies = [
  "axum",
  "cpal",
  "dirs",
+ "gtk",
  "hound",
  "once_cell",
  "parking_lot",
+ "png 0.17.16",
  "portable-pty",
  "reqwest 0.12.28",
  "serde",
@@ -30,6 +32,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "uuid",
+ "wry",
 ]
 
 [[package]]

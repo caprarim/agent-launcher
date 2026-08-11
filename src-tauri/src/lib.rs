@@ -8,6 +8,7 @@ mod ollama;
 mod pty;
 mod speech;
 mod update;
+mod usage;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -107,6 +108,7 @@ pub fn run() {
             browser::browser_nav_action,
             update::update_check,
             update::update_apply,
+            usage::usage_get,
         ])
         .setup(move |app| {
             speech::set_app(app.handle().clone());

@@ -1,13 +1,45 @@
-use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl, Window};
+use std::cell::RefCell;
+use std::sync::mpsc::channel;
 
-const LABEL: &str = "dockbrowser";
+use tauri::Manager;
+use wry::dpi::{LogicalPosition, LogicalSize};
+use wry::{Rect, WebView, WebViewBuilder};
 
-fn find(window: &Window) -> Option<tauri::Webview> {
-    window.webviews().into_iter().find(|w| w.label() == LABEL)
+thread_local! {
+    static VIEW: RefCell<Option<WebView>> = const { RefCell::new(None) };
 }
 
-fn parse(url: &str) -> Result<tauri::Url, String> {
-    url.parse::<tauri::Url>().map_err(|e| e.to_string())
+#[cfg(target_os = "linux")]
+fn positioning_supported() -> bool {
+    use gtk::glib::object::ObjectExt;
+    gtk::gdk::Display::default()
+        .map(|d| d.type_().name().contains("X11"))
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn positioning_supported() -> bool {
+    true
+}
+
+fn rect(x: f64, y: f64, w: f64, h: f64) -> Rect {
+    Rect {
+        position: LogicalPosition::new(x, y).into(),
+        size: LogicalSize::new(w.max(1.0), h.max(1.0)).into(),
+    }
+}
+
+fn on_main<F, T>(app: &tauri::AppHandle, f: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    let (tx, rx) = channel();
+    app.run_on_main_thread(move || {
+        let _ = tx.send(f());
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv().map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -19,60 +51,77 @@ pub fn browser_show(
     w: f64,
     h: f64,
 ) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("no main window")?;
-    let w = w.max(1.0);
-    let h = h.max(1.0);
-    if let Some(view) = find(&window) {
-        view.set_position(LogicalPosition::new(x, y)).map_err(|e| e.to_string())?;
-        view.set_size(LogicalSize::new(w, h)).map_err(|e| e.to_string())?;
-        let _ = view.show();
-        return Ok(());
-    }
-    let target = parse(&url)?;
-    let builder = tauri::webview::WebviewBuilder::new(LABEL, WebviewUrl::External(target));
-    window
-        .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w, h))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+    let handle = app.clone();
+    on_main(&app, move || {
+        if !positioning_supported() {
+            return Err("unsupported-display".into());
+        }
+        let window = handle
+            .get_webview_window("main")
+            .ok_or("no main window")?;
+        let bounds = rect(x, y, w, h);
+        VIEW.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            if let Some(view) = slot.as_ref() {
+                view.set_bounds(bounds).map_err(|e| e.to_string())?;
+                view.set_visible(true).map_err(|e| e.to_string())?;
+                return Ok(());
+            }
+            let view = WebViewBuilder::new()
+                .with_url(&url)
+                .with_bounds(bounds)
+                .build_as_child(&window)
+                .map_err(|e| e.to_string())?;
+            *slot = Some(view);
+            Ok(())
+        })
+    })
 }
 
 #[tauri::command]
 pub fn browser_navigate(app: tauri::AppHandle, url: String) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("no main window")?;
-    let mut view = find(&window).ok_or("browser not open")?;
-    let target = parse(&url)?;
-    view.navigate(target).map_err(|e| e.to_string())
+    on_main(&app, move || {
+        VIEW.with(|cell| match cell.borrow().as_ref() {
+            Some(view) => view.load_url(&url).map_err(|e| e.to_string()),
+            None => Err("browser not open".into()),
+        })
+    })
 }
 
 #[tauri::command]
 pub fn browser_hide(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("no main window")?;
-    if let Some(view) = find(&window) {
-        let _ = view.hide();
-        let _ = view.set_size(LogicalSize::new(1.0, 1.0));
-        let _ = view.set_position(LogicalPosition::new(-4000.0, -4000.0));
-    }
-    Ok(())
+    on_main(&app, move || {
+        VIEW.with(|cell| {
+            if let Some(view) = cell.borrow().as_ref() {
+                let _ = view.set_visible(false);
+            }
+            Ok(())
+        })
+    })
 }
 
 #[tauri::command]
 pub fn browser_close(app: tauri::AppHandle) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("no main window")?;
-    if let Some(view) = find(&window) {
-        let _ = view.close();
-    }
-    Ok(())
+    on_main(&app, move || {
+        VIEW.with(|cell| {
+            cell.borrow_mut().take();
+            Ok(())
+        })
+    })
 }
 
 #[tauri::command]
 pub fn browser_nav_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
-    let window = app.get_window("main").ok_or("no main window")?;
-    let view = find(&window).ok_or("browser not open")?;
     let js = match action.as_str() {
         "back" => "history.back()",
         "forward" => "history.forward()",
         "reload" => "location.reload()",
         _ => return Err("unknown action".into()),
     };
-    view.eval(js).map_err(|e| e.to_string())
+    on_main(&app, move || {
+        VIEW.with(|cell| match cell.borrow().as_ref() {
+            Some(view) => view.evaluate_script(js).map_err(|e| e.to_string()),
+            None => Err("browser not open".into()),
+        })
+    })
 }

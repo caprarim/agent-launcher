@@ -45,14 +45,29 @@ export const backend = {
   openExternal: (url: string) => invoke<void>('open_external', { url }).catch(() => {}),
   browserShow: (url: string, x: number, y: number, w: number, h: number) =>
     invoke<void>('browser_show', { url, x, y, w, h }),
-  browserNavigate: (url: string) => invoke<void>('browser_navigate', { url }),
+  browserNavigate: (url: string) => invoke<void>('browser_navigate', { url }).catch(() => {}),
   browserHide: () => invoke<void>('browser_hide').catch(() => {}),
   browserClose: () => invoke<void>('browser_close').catch(() => {}),
   browserNavAction: (action: 'back' | 'forward' | 'reload') =>
     invoke<void>('browser_nav_action', { action }).catch(() => {}),
   updateCheck: () => invoke<UpdateInfo>('update_check'),
   updateApply: () => invoke<void>('update_apply'),
+  usageGet: (id?: string, configDir?: string) => invoke<Usage>('usage_get', { id, configDir }),
 };
+
+export interface UsageWindow {
+  percent: number;
+  resetsAt: string | null;
+}
+
+export interface Usage {
+  session: UsageWindow | null;
+  week: UsageWindow | null;
+  source: string;
+  ageMs: number;
+  account: string | null;
+  error: string | null;
+}
 
 export interface UpdateInfo {
   available: boolean;
