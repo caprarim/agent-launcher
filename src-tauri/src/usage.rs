@@ -11,9 +11,9 @@ use crate::SharedState;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
-const FRESH_TTL: Duration = Duration::from_secs(60);
-const ERROR_TTL: Duration = Duration::from_secs(120);
-const LOCAL_FRESH_MS: u64 = 10 * 60 * 1000;
+const FRESH_TTL: Duration = Duration::from_secs(15);
+const ERROR_TTL: Duration = Duration::from_secs(30);
+const LOCAL_FRESH_MS: u64 = 20 * 1000;
 const LOCAL_MAX_AGE_MS: u64 = 6 * 60 * 60 * 1000;
 
 static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {

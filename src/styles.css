@@ -263,6 +263,59 @@ button:focus-visible {
 
 .card-body .xterm { height: 100%; }
 
+.usage-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: 3px 10px 4px;
+  background: #161a22;
+  border-top: 1px solid var(--line);
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--ink-faint);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.usage-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.usage-label {
+  letter-spacing: 0.04em;
+}
+
+.usage-track {
+  width: 54px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.usage-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.usage-fill.hot { background: var(--danger); }
+
+.usage-pct {
+  min-width: 30px;
+  text-align: right;
+  color: var(--ink-mute);
+}
+
+.usage-note {
+  color: var(--ink-faint);
+  opacity: 0.75;
+}
+
 .card-grip {
   position: absolute;
   right: 0;
