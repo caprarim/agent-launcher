@@ -1,6 +1,7 @@
 mod accounts;
 mod browser;
 mod control;
+mod costs;
 mod files;
 mod focus;
 mod groq;
@@ -100,7 +101,11 @@ pub fn run() {
             files::list_dir,
             files::read_text_file,
             files::write_text_file,
+            files::create_dir,
+            files::home_dir,
+            files::config_dir,
             files::open_external,
+            costs::usage_costs,
             focus::set_ui_zoom,
             focus::focus_mode,
             browser::browser_show,

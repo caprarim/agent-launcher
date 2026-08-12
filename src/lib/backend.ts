@@ -44,6 +44,10 @@ export const backend = {
   listDir: (path: string) => invoke<DirEntry[]>('list_dir', { path }),
   readTextFile: (path: string) => invoke<string>('read_text_file', { path }),
   writeTextFile: (path: string, content: string) => invoke<void>('write_text_file', { path, content }),
+  createDir: (path: string) => invoke<void>('create_dir', { path }),
+  homeDir: () => invoke<string>('home_dir'),
+  configDir: () => invoke<string>('config_dir'),
+  usageCosts: () => invoke<CostReport>('usage_costs'),
   openExternal: (url: string) => invoke<void>('open_external', { url }).catch(() => {}),
   browserShow: (url: string, x: number, y: number, w: number, h: number) =>
     invoke<void>('browser_show', { url, x, y, w, h }),
@@ -84,6 +88,65 @@ export interface DirEntry {
   name: string;
   path: string;
   isDir: boolean;
+}
+
+export interface CostTokens {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+}
+
+export interface CostBucket {
+  tokens: CostTokens;
+  cost: number;
+  messages: number;
+}
+
+export interface CostModelRow {
+  model: string;
+  tokens: CostTokens;
+  cost: number;
+  messages: number;
+  rateInput: number;
+  rateOutput: number;
+}
+
+export interface CostSessionRow {
+  id: string;
+  project: string;
+  cost: number;
+  tokens: CostTokens;
+  models: string[];
+  startedAt: string;
+  endedAt: string;
+}
+
+export interface CostProjectRow {
+  project: string;
+  cost: number;
+  sessions: number;
+}
+
+export interface CostDayRow {
+  date: string;
+  cost: number;
+}
+
+export interface CostReport {
+  day: CostBucket;
+  week: CostBucket;
+  month: CostBucket;
+  total: CostBucket;
+  models: CostModelRow[];
+  sessions: CostSessionRow[];
+  projects: CostProjectRow[];
+  days: CostDayRow[];
+  sessionCount: number;
+  fileCount: number;
+  roots: string[];
+  scannedMs: number;
+  error: string | null;
 }
 
 export interface GroqChatResponse {

@@ -191,7 +191,7 @@ export default function App() {
         if (owned) return owned;
       }
       const st = useStore.getState();
-      if (st.settingsOpen || st.paletteOpen) return null;
+      if (st.settingsOpen || st.paletteOpen || st.profilerOpen) return null;
       if (st.focusAgentId) return st.focusAgentId;
       const pool = st.agents.filter(
         (a) => a.workspaceId === st.activeWorkspaceId && a.status !== 'exited' && !a.minimized,

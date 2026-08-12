@@ -20,7 +20,7 @@ function freshWorkspace(id: string, name: string, configDir?: string): Workspace
     configDir,
     accountId: 'default',
     orchestrator: freshOrchestrator(),
-    dock: { open: false, tab: 'browser', width: 760, url: 'http://localhost:3000', device: '', editorPath: '' },
+    dock: { open: false, tab: 'browser', width: 760, url: 'https://google.com', device: '', editorPath: '' },
   };
 }
 

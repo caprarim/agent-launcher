@@ -145,7 +145,30 @@ pub fn read_text_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 pub fn write_text_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
     std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn create_dir(path: String) -> Result<(), String> {
+    std::fs::create_dir_all(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn home_dir() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .ok_or_else(|| "no home directory".to_string())
+}
+
+#[tauri::command]
+pub fn config_dir(app: tauri::AppHandle) -> Result<String, String> {
+    app.path()
+        .app_config_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
