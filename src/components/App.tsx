@@ -17,9 +17,9 @@ function lastMeaningfulLine(text: string): string {
   return lines.length ? lines[lines.length - 1].slice(0, 120) : '';
 }
 
-const CONFIRM_IDLE_MS = 2600;
-const RETRY_IDLE_MS = 1500;
-const MAX_SETTLE_TRIES = 60;
+const CONFIRM_IDLE_MS = 700;
+const RETRY_IDLE_MS = 600;
+const MAX_SETTLE_TRIES = 200;
 const DONE_MESSAGE = 'Claude has finished working.';
 
 export default function App() {

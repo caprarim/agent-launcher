@@ -2,6 +2,8 @@ use tauri::{AppHandle, Manager};
 
 const APP_NAME: &str = "Claude Agent";
 const TITLE: &str = "Claude";
+#[cfg(not(windows))]
+const VISIBLE_MS: u64 = 5000;
 
 #[cfg(windows)]
 const TOAST_AUMID: &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -35,7 +37,7 @@ fn show_notification(title: &str, body: &str) -> Result<(), String> {
         "$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]; \
 $null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]; \
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument; \
-$xml.LoadXml('<toast duration=\"long\"><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual></toast>'); \
+$xml.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual></toast>'); \
 $toast = New-Object Windows.UI.Notifications.ToastNotification $xml; \
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{}').Show($toast)",
         escape(title),
@@ -65,14 +67,38 @@ $toast = New-Object Windows.UI.Notifications.ToastNotification $xml; \
 }
 
 #[cfg(not(windows))]
+fn close_after(id: String) {
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(VISIBLE_MS));
+        let _ = std::process::Command::new("gdbus")
+            .args([
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.Notifications",
+                "--object-path",
+                "/org/freedesktop/Notifications",
+                "--method",
+                "org.freedesktop.Notifications.CloseNotification",
+                id.as_str(),
+            ])
+            .output();
+    });
+}
+
+#[cfg(not(windows))]
 fn show_notification(title: &str, body: &str) -> Result<(), String> {
-    let sent = std::process::Command::new("notify-send")
-        .args(["-a", APP_NAME, "-u", "critical", "-t", "0", title, body])
+    if let Ok(o) = std::process::Command::new("notify-send")
+        .args(["-a", APP_NAME, "-u", "normal", "-t", "5000", "-p", title, body])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if sent {
-        return Ok(());
+    {
+        if o.status.success() {
+            let id = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if !id.is_empty() {
+                close_after(id);
+            }
+            return Ok(());
+        }
     }
     let out = std::process::Command::new("gdbus")
         .args([
@@ -90,8 +116,8 @@ fn show_notification(title: &str, body: &str) -> Result<(), String> {
             title,
             body,
             "[]",
-            "{'urgency': <byte 2>}",
-            "0",
+            "{}",
+            "5000",
         ])
         .output()
         .map_err(|e| e.to_string())?;
