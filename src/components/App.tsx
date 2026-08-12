@@ -20,7 +20,7 @@ function lastMeaningfulLine(text: string): string {
 const CONFIRM_IDLE_MS = 2600;
 const RETRY_IDLE_MS = 1500;
 const MAX_SETTLE_TRIES = 60;
-const DONE_MESSAGE = 'Clawd has finished working.';
+const DONE_MESSAGE = 'Claude has finished working.';
 
 export default function App() {
   const settingsOpen = useStore((s) => s.settingsOpen);

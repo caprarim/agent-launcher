@@ -1,6 +1,7 @@
 use tauri::{AppHandle, Manager};
 
-const APP_NAME: &str = "Clawd";
+const APP_NAME: &str = "Claude Agent";
+const TITLE: &str = "Claude";
 
 #[cfg(windows)]
 const TOAST_AUMID: &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
@@ -107,7 +108,7 @@ fn show_notification(title: &str, body: &str) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn notify_agent_done(app: AppHandle, message: String) -> bool {
     let body = if message.trim().is_empty() {
-        "Clawd has finished working.".to_string()
+        "Claude has finished working.".to_string()
     } else {
         message.trim().to_string()
     };
@@ -115,7 +116,7 @@ pub fn notify_agent_done(app: AppHandle, message: String) -> bool {
         crate::files::log_line(&app, "notify skipped, launcher window is focused");
         return false;
     }
-    match show_notification(APP_NAME, &body) {
+    match show_notification(TITLE, &body) {
         Ok(()) => {
             crate::files::log_line(&app, &format!("notify shown {}", body));
             true
