@@ -18,6 +18,8 @@ function lastMeaningfulLine(text: string): string {
 }
 
 const CONFIRM_IDLE_MS = 2600;
+const RETRY_IDLE_MS = 1500;
+const MAX_SETTLE_TRIES = 60;
 const DONE_MESSAGE = 'Clawd has finished working.';
 
 export default function App() {
@@ -61,6 +63,47 @@ export default function App() {
       st.updateAgent(id, { status: 'exited' });
     }));
 
+    const settle = (id: string, worked: boolean | undefined, tries: number, steady: number) => {
+      confirmTimers.current.delete(id);
+      const live = useStore.getState();
+      const now = live.agents.find((a) => a.id === id);
+      if (!now || now.status === 'exited') return;
+      const stillActive = now.status === 'working' || now.status === 'asking' ||
+        (worked === true && now.status === 'running');
+      if (!stillActive) return;
+
+      const screen = readScreen(id) ?? '';
+      const quiet = !!screen.trim() && !isBusyScreen(screen) && isIdleScreen(screen);
+      if (!quiet) {
+        if (tries >= MAX_SETTLE_TRIES) {
+          dlog(`done-settle agent=${now.name} gave up, tail=${JSON.stringify(bottom(screen, 4).slice(-160))}`);
+          return;
+        }
+        confirmTimers.current.set(id, window.setTimeout(() => settle(id, worked, tries + 1, 0), RETRY_IDLE_MS));
+        return;
+      }
+      if (steady === 0) {
+        confirmTimers.current.set(id, window.setTimeout(() => settle(id, worked, tries + 1, 1), CONFIRM_IDLE_MS));
+        return;
+      }
+
+      const asking = detectAsking(screen);
+      const next = asking ? 'asking' : 'done';
+      if (next === now.status) {
+        dlog(`done-confirm agent=${now.name} already ${next}, no announce`);
+        return;
+      }
+      live.updateAgent(id, { status: next });
+      dlog(`announce agent=${now.name} from=${now.status} asking=${asking} tail=${JSON.stringify(bottom(screen, 4).slice(-160))}`);
+      if (live.settings.announceDone) {
+        playChime(asking ? 'asking' : 'done');
+      }
+      void backend.notifyAgentDone(DONE_MESSAGE);
+      noteEvent(asking
+        ? `${now.name} is waiting for your input${now.taskLabel ? ` on ${now.taskLabel}` : ''} and needs an answer from you before it can continue`
+        : `${now.name} finished working${now.taskLabel ? ` on ${now.taskLabel}` : ''}`);
+    };
+
     unlisteners.push(onEvent<{ id: string; tail?: string; worked?: boolean }>('agent-done', ({ id, tail, worked }) => {
       const st = useStore.getState();
       const agent = st.agents.find((a) => a.id === id);
@@ -75,49 +118,8 @@ export default function App() {
         return;
       }
 
-      const screen = readScreen(id);
-      if (screen === undefined || !screen.trim()) {
-        dlog(`done-event agent=${agent.name} ignored, no screen to verify`);
-        return;
-      }
-      if (isBusyScreen(screen) || !isIdleScreen(screen)) {
-        dlog(`done-event agent=${agent.name} held, busy=${isBusyScreen(screen)} idle=${isIdleScreen(screen)} tail=${JSON.stringify(bottom(screen, 4).slice(-160))}`);
-        return;
-      }
-
       window.clearTimeout(confirmTimers.current.get(id));
-      confirmTimers.current.set(id, window.setTimeout(() => {
-        confirmTimers.current.delete(id);
-        const live = useStore.getState();
-        const now = live.agents.find((a) => a.id === id);
-        if (!now || now.status === 'exited') return;
-        const stillActive = now.status === 'working' || now.status === 'asking' ||
-          (worked === true && now.status === 'running');
-        if (!stillActive) return;
-        const after = readScreen(id);
-        if (after === undefined || !after.trim()) return;
-        if (isBusyScreen(after) || !isIdleScreen(after)) {
-          dlog(`done-confirm agent=${now.name} resumed, tail=${JSON.stringify(bottom(after, 4).slice(-160))}`);
-          return;
-        }
-        const asking = detectAsking(after);
-        const next = asking ? 'asking' : 'done';
-        if (next === now.status) {
-          dlog(`done-confirm agent=${now.name} already ${next}, no announce`);
-          return;
-        }
-        live.updateAgent(id, { status: next });
-        dlog(`announce agent=${now.name} from=${now.status} asking=${asking} tail=${JSON.stringify(bottom(after, 4).slice(-160))}`);
-        if (live.settings.announceDone) {
-          playChime(asking ? 'asking' : 'done');
-        }
-        if (!asking) {
-          void backend.notifyAgentDone(DONE_MESSAGE);
-        }
-        noteEvent(asking
-          ? `${now.name} is waiting for your input${now.taskLabel ? ` on ${now.taskLabel}` : ''} and needs an answer from you before it can continue`
-          : `${now.name} finished working${now.taskLabel ? ` on ${now.taskLabel}` : ''}`);
-      }, CONFIRM_IDLE_MS));
+      settle(id, worked, 0, 0);
     }));
 
     unlisteners.push(onEvent<{ speaking: boolean }>('tts-state', ({ speaking }) => {

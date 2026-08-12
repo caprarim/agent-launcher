@@ -34,7 +34,7 @@ fn show_notification(title: &str, body: &str) -> Result<(), String> {
         "$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]; \
 $null = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]; \
 $xml = New-Object Windows.Data.Xml.Dom.XmlDocument; \
-$xml.LoadXml('<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual></toast>'); \
+$xml.LoadXml('<toast duration=\"long\"><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text></binding></visual></toast>'); \
 $toast = New-Object Windows.UI.Notifications.ToastNotification $xml; \
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('{}').Show($toast)",
         escape(title),
@@ -66,7 +66,7 @@ $toast = New-Object Windows.UI.Notifications.ToastNotification $xml; \
 #[cfg(not(windows))]
 fn show_notification(title: &str, body: &str) -> Result<(), String> {
     let sent = std::process::Command::new("notify-send")
-        .args(["-a", APP_NAME, "-u", "normal", title, body])
+        .args(["-a", APP_NAME, "-u", "critical", "-t", "0", title, body])
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false);
@@ -89,8 +89,8 @@ fn show_notification(title: &str, body: &str) -> Result<(), String> {
             title,
             body,
             "[]",
-            "{}",
-            "6000",
+            "{'urgency': <byte 2>}",
+            "0",
         ])
         .output()
         .map_err(|e| e.to_string())?;
