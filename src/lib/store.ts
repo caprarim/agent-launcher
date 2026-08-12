@@ -31,6 +31,7 @@ interface StoreState {
   accounts: ClaudeAccount[];
   settings: Settings;
   settingsOpen: boolean;
+  profilerOpen: boolean;
   paletteOpen: boolean;
   zCounter: number;
   focusAgentId: string | null;
@@ -63,6 +64,7 @@ interface StoreState {
   clearLog: (wsId: string) => void;
   setSettings: (patch: Partial<Settings>) => void;
   setSettingsOpen: (open: boolean) => void;
+  setProfilerOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
 
   addPreset: (label: string, count: number) => void;
@@ -81,6 +83,7 @@ export const useStore = create<StoreState>()(
       accounts: [],
       settings: DEFAULT_SETTINGS,
       settingsOpen: false,
+      profilerOpen: false,
       paletteOpen: false,
       zCounter: 10,
       focusAgentId: null,
@@ -362,6 +365,7 @@ export const useStore = create<StoreState>()(
 
       setSettings: (patch) => set((st) => ({ settings: { ...st.settings, ...patch } })),
       setSettingsOpen: (open) => set({ settingsOpen: open }),
+      setProfilerOpen: (open) => set({ profilerOpen: open }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
 
       addPreset: (label, count) => {

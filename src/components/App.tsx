@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import Canvas from './Canvas';
 import OrchestratorBar from './OrchestratorBar';
 import SettingsPanel from './SettingsPanel';
+import ProfilerPanel from './ProfilerPanel';
 import AccountSwitcher from './AccountSwitcher';
 import UpdateButton from './UpdateButton';
 import { useStore } from '../lib/store';
@@ -24,6 +25,8 @@ const DONE_MESSAGE = 'Claude has finished working.';
 
 export default function App() {
   const settingsOpen = useStore((s) => s.settingsOpen);
+  const profilerOpen = useStore((s) => s.profilerOpen);
+  const setProfilerOpen = useStore((s) => s.setProfilerOpen);
   const talkKey = useStore((s) => s.settings.talkKey);
   const tileAgents = useStore((s) => s.tileAgents);
   const tileMode = useStore((s) => s.settings.tileMode);
@@ -295,12 +298,20 @@ export default function App() {
         >
           Editor
         </button>
+        <button
+          className={`top-btn${profilerOpen ? ' on' : ''}`}
+          onClick={() => setProfilerOpen(!profilerOpen)}
+          title="Open profiler to see token usage, costs, and skills"
+        >
+          Profiler
+        </button>
         <UpdateButton />
         <AccountSwitcher />
       </div>
       <Canvas />
       <OrchestratorBar />
       {settingsOpen && <SettingsPanel />}
+      {profilerOpen && <ProfilerPanel onClose={() => setProfilerOpen(false)} />}
     </div>
   );
 }
