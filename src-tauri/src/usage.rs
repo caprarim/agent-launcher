@@ -11,14 +11,16 @@ use crate::SharedState;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
-const API_MIN_INTERVAL: Duration = Duration::from_secs(60);
-const API_MAX_INTERVAL: Duration = Duration::from_secs(300);
-const LOCAL_REREAD: Duration = Duration::from_secs(2);
+const API_MIN_INTERVAL: Duration = Duration::from_secs(600);
+const API_MAX_INTERVAL: Duration = Duration::from_secs(3600);
+const API_ERROR_INTERVAL: Duration = Duration::from_secs(120);
+const LOCAL_REREAD: Duration = Duration::from_secs(1);
+const LOCAL_FRESH_MS: u64 = 6 * 60 * 1000;
 const LOCAL_MAX_AGE_MS: u64 = 6 * 60 * 60 * 1000;
 
 static CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(12))
+        .timeout(Duration::from_secs(8))
         .build()
         .expect("usage client")
 });
@@ -30,6 +32,7 @@ struct Entry {
     next_api: Option<Instant>,
     backoff: Duration,
     error: Option<String>,
+    last_logged: Option<(i64, i64)>,
 }
 
 impl Default for Entry {
@@ -40,6 +43,7 @@ impl Default for Entry {
             next_api: None,
             backoff: API_MIN_INTERVAL,
             error: None,
+            last_logged: None,
         }
     }
 }
@@ -47,6 +51,12 @@ impl Default for Entry {
 static STATE: Lazy<Mutex<HashMap<String, Entry>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 static INFLIGHT: Lazy<tokio::sync::Mutex<()>> = Lazy::new(|| tokio::sync::Mutex::new(()));
+
+struct FetchError {
+    message: String,
+    retry_after: Option<Duration>,
+    rate_limited: bool,
+}
 
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -154,8 +164,12 @@ fn local(config_dir: &Option<String>) -> Option<(u64, Usage)> {
     Some((fetched, out))
 }
 
-async fn fetch(config_dir: &Option<String>) -> Result<Usage, String> {
-    let token = access_token(config_dir).ok_or("not logged in")?;
+async fn fetch(config_dir: &Option<String>) -> Result<Usage, FetchError> {
+    let token = access_token(config_dir).ok_or_else(|| FetchError {
+        message: "not logged in".into(),
+        retry_after: None,
+        rate_limited: false,
+    })?;
     let res = CLIENT
         .get(USAGE_URL)
         .bearer_auth(token)
@@ -163,17 +177,43 @@ async fn fetch(config_dir: &Option<String>) -> Result<Usage, String> {
         .header("anthropic-beta", OAUTH_BETA)
         .send()
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| FetchError {
+            message: e.to_string(),
+            retry_after: None,
+            rate_limited: false,
+        })?;
     let status = res.status();
-    let body = res.text().await.map_err(|e| e.to_string())?;
+    let retry_after = res
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(Duration::from_secs);
+    let body = res.text().await.map_err(|e| FetchError {
+        message: e.to_string(),
+        retry_after,
+        rate_limited: status.as_u16() == 429,
+    })?;
     if !status.is_success() {
-        return Err(format!("http {}", status.as_u16()));
+        return Err(FetchError {
+            message: format!("http {}", status.as_u16()),
+            retry_after,
+            rate_limited: status.as_u16() == 429,
+        });
     }
-    let json: Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+    let json: Value = serde_json::from_str(&body).map_err(|e| FetchError {
+        message: e.to_string(),
+        retry_after: None,
+        rate_limited: false,
+    })?;
     let root = json.get("utilization").unwrap_or(&json);
     let out = parse_utilization(root, "api");
     if out.session.is_none() && out.week.is_none() {
-        return Err("no limits in response".into());
+        return Err(FetchError {
+            message: "no limits in response".into(),
+            retry_after: None,
+            rate_limited: false,
+        });
     }
     Ok(out)
 }
@@ -188,6 +228,13 @@ fn absorb(key: &str, fetched: u64, usage: Usage) {
     if newer {
         entry.best = Some((fetched, usage));
     }
+}
+
+fn best_age_ms(key: &str) -> Option<u64> {
+    let guard = STATE.lock();
+    guard
+        .get(key)
+        .and_then(|e| e.best.as_ref().map(|(f, _)| now_ms().saturating_sub(*f)))
 }
 
 #[tauri::command]
@@ -222,7 +269,9 @@ pub async fn usage_get(
         }
     }
 
-    let due = {
+    let local_fresh = best_age_ms(&key).map(|a| a < LOCAL_FRESH_MS).unwrap_or(false);
+
+    let due = !local_fresh && {
         let guard = STATE.lock();
         guard
             .get(&key)
@@ -242,7 +291,7 @@ pub async fn usage_get(
             }
             ok
         };
-        if still_due {
+        if still_due && !best_age_ms(&key).map(|a| a < LOCAL_FRESH_MS).unwrap_or(false) {
             let result = fetch(&dir).await;
             let mut inner = STATE.lock();
             let entry = inner.entry(key.clone()).or_default();
@@ -261,11 +310,17 @@ pub async fn usage_get(
                     }
                 }
                 Err(e) => {
-                    if e == "http 429" {
-                        entry.backoff = (entry.backoff * 2).min(API_MAX_INTERVAL);
+                    if e.rate_limited {
+                        let hinted = e
+                            .retry_after
+                            .filter(|d| *d > Duration::from_secs(0))
+                            .unwrap_or(entry.backoff * 2);
+                        entry.backoff = hinted.clamp(API_MIN_INTERVAL, API_MAX_INTERVAL);
+                        entry.next_api = Some(Instant::now() + entry.backoff);
+                    } else {
+                        entry.next_api = Some(Instant::now() + API_ERROR_INTERVAL);
                     }
-                    entry.next_api = Some(Instant::now() + entry.backoff);
-                    entry.error = Some(e);
+                    entry.error = Some(e.message);
                 }
             }
             let snapshot = entry.clone();
@@ -273,7 +328,7 @@ pub async fn usage_get(
             crate::files::log_line(
                 &app,
                 &format!(
-                    "usage_get dir={} source={} age={}s next={}s error={:?}",
+                    "usage_api dir={} source={} age={}s next={}s error={:?}",
                     key.is_empty().then(|| "home".to_string()).unwrap_or(key.clone()),
                     snapshot
                         .best
@@ -328,5 +383,34 @@ pub async fn usage_get(
         },
     };
     out.account = account_email(&dir);
+
+    let shown = (
+        out.session.as_ref().map(|w| w.percent.round() as i64).unwrap_or(-1),
+        out.week.as_ref().map(|w| w.percent.round() as i64).unwrap_or(-1),
+    );
+    let changed = {
+        let mut guard = STATE.lock();
+        let entry = guard.entry(key.clone()).or_default();
+        if entry.last_logged == Some(shown) {
+            false
+        } else {
+            entry.last_logged = Some(shown);
+            true
+        }
+    };
+    if changed {
+        crate::files::log_line(
+            &app,
+            &format!(
+                "usage_shown dir={} source={} session={}% week={}% age={}s",
+                key.is_empty().then(|| "home".to_string()).unwrap_or(key.clone()),
+                out.source,
+                shown.0,
+                shown.1,
+                out.age_ms / 1000,
+            ),
+        );
+    }
+
     Ok(out)
 }

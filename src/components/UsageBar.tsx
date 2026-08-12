@@ -57,7 +57,7 @@ export default function UsageBar({ agentId, configDir }: { agentId: string; conf
       if (next && ok) setUsage(next);
       setFailed(ok ? null : next);
       window.clearTimeout(timer);
-      timer = window.setTimeout(load, ok ? 5000 : 3000);
+      timer = window.setTimeout(load, ok ? 2000 : 3000);
     };
 
     void load();
