@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
 import { backend } from '../lib/backend';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface SkillInfo {
   name: string;
@@ -22,19 +31,15 @@ interface UsageData {
 }
 
 export default function ProfilerPanel({ onClose }: ProfilerPanelProps) {
-  const [tab, setTab] = useState<'usage' | 'tools' | 'config'>('usage');
+  const [tab, setTab] = useState('usage');
   const [usageData, setUsageData] = useState<{ session: UsageData | null; week: UsageData | null } | null>(null);
   const [usageText, setUsageText] = useState<string>('Loading usage data...');
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [claudeConfig, setClaudeConfig] = useState<string>('');
   const [claudeMd, setClaudeMd] = useState<string>('');
-  const [selectedSkill, setSelectedSkill] = useState<string>('');
   const [selectedMemory, setSelectedMemory] = useState<string>('');
   const [selectedMemoryContent, setSelectedMemoryContent] = useState<string>('');
-  const [showSkillDropdown, setShowSkillDropdown] = useState(false);
-  const [showMemoryDropdown, setShowMemoryDropdown] = useState(false);
-  const [showAddSkillModal, setShowAddSkillModal] = useState(false);
   const [newSkillName, setNewSkillName] = useState('');
   const [loading, setLoading] = useState(true);
 
@@ -46,12 +51,11 @@ export default function ProfilerPanel({ onClose }: ProfilerPanelProps) {
     try {
       const homeDir = '/home/caprarim';
 
-      // Load real usage data from backend
+      // Load real usage data
       try {
         const usage = await backend.usageGet();
         setUsageData(usage);
 
-        // Build usage text summary
         let text = '';
         if (usage.session) {
           text += `Current session: ${Math.round(usage.session.percent)}% used`;
@@ -122,9 +126,7 @@ export default function ProfilerPanel({ onClose }: ProfilerPanelProps) {
         const content = await backend.readTextFile(configPath);
         setClaudeConfig(content);
       } catch (_e) {}
-    } catch (_e) {
-      // Continue without data if backend fails
-    }
+    } catch (_e) {}
     setLoading(false);
   };
 
@@ -139,262 +141,312 @@ export default function ProfilerPanel({ onClose }: ProfilerPanelProps) {
 
   const handleAddSkill = async () => {
     if (!newSkillName.trim()) return;
-    try {
-      const newSkill = {
-        name: newSkillName,
-        path: `/home/caprarim/.claude/skills/${newSkillName}`,
-      };
-      setSkills([...skills, newSkill]);
-      setNewSkillName('');
-      setShowAddSkillModal(false);
-    } catch (_e) {
-      // Handle error silently
-    }
+    const newSkill = {
+      name: newSkillName,
+      path: `/home/caprarim/.claude/skills/${newSkillName}`,
+    };
+    setSkills([...skills, newSkill]);
+    setNewSkillName('');
   };
 
   return (
-    <div className="fixed inset-0 bg-black z-50 flex flex-col">
+    <div className="fixed inset-0 bg-black/95 z-50 flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between p-6 border-b border-neutral-700 bg-neutral-900">
-        <h1 className="text-2xl font-bold text-white">Agent Launcher Profiler</h1>
-        <button
+      <div className="border-b border-neutral-800 bg-neutral-950/50 backdrop-blur-sm p-6 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-white">Profiler</h1>
+          <p className="text-sm text-neutral-400 mt-1">Agent Launcher Token & Cost Dashboard</p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onClose}
-          className="text-neutral-400 hover:text-white text-2xl font-light w-8 h-8 flex items-center justify-center"
+          className="h-10 w-10 text-neutral-400 hover:text-white"
         >
           ✕
-        </button>
+        </Button>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-0 px-6 pt-6 border-b border-neutral-700">
-        <button
-          onClick={() => setTab('usage')}
-          className={`pb-4 font-semibold transition-colors text-lg ${
-            tab === 'usage'
-              ? 'text-white border-b-2 border-blue-500'
-              : 'text-neutral-400 hover:text-neutral-300'
-          }`}
-        >
-          Usage & Costs
-        </button>
-        <button
-          onClick={() => setTab('tools')}
-          className={`pb-4 font-semibold transition-colors text-lg ml-8 ${
-            tab === 'tools'
-              ? 'text-white border-b-2 border-blue-500'
-              : 'text-neutral-400 hover:text-neutral-300'
-          }`}
-        >
-          Tools & Skills
-        </button>
-        <button
-          onClick={() => setTab('config')}
-          className={`pb-4 font-semibold transition-colors text-lg ml-8 ${
-            tab === 'config'
-              ? 'text-white border-b-2 border-blue-500'
-              : 'text-neutral-400 hover:text-neutral-300'
-          }`}
-        >
-          Configuration
-        </button>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6">
-        {tab === 'usage' && (
-          <div className="max-w-5xl">
-            <div className="bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-lg p-8 border border-neutral-700 mb-8">
-              <h2 className="text-xl font-semibold text-white mb-6">Claude API Usage</h2>
-              <div className="bg-neutral-900 rounded-lg p-6 border border-neutral-700 mb-4">
-                <p className="text-neutral-300 whitespace-pre-wrap font-mono text-sm">{usageText}</p>
-              </div>
-              <p className="text-sm text-neutral-400 mt-4">
-                For detailed token breakdown by model, run <code className="bg-neutral-900 px-2 py-1 rounded text-blue-300">./usage</code> in a Claude Code terminal
-              </p>
-            </div>
-
-            <div className="bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-lg p-8 border border-neutral-700">
-              <h2 className="text-xl font-semibold text-white mb-4">About Token Costs</h2>
-              <div className="space-y-3 text-sm text-neutral-300">
-                <p>Claude pricing varies by model:</p>
-                <ul className="space-y-2 ml-4 text-neutral-400">
-                  <li>• <strong>Haiku:</strong> $0.003/1M input, $0.015/1M output</li>
-                  <li>• <strong>Sonnet:</strong> $0.003/1M input, $0.015/1M output</li>
-                  <li>• <strong>Opus:</strong> $0.015/1M input, $0.060/1M output</li>
-                  <li>• <strong>Cache reads:</strong> $0.00075/1M tokens (90% discount)</li>
-                  <li>• <strong>Cache writes:</strong> $0.0075/1M tokens (4x cost)</li>
-                </ul>
-                <p className="mt-4">Your actual costs depend on which models you use most. Use <code className="bg-neutral-900 px-2 py-1 rounded text-blue-300">./usage</code> to see the breakdown.</p>
-              </div>
-            </div>
+      {/* Main Content */}
+      <div className="flex-1 overflow-hidden">
+        <Tabs value={tab} onValueChange={setTab} className="h-full flex flex-col">
+          <div className="border-b border-neutral-800 bg-neutral-950/30 px-6 pt-6">
+            <TabsList className="bg-neutral-900 border border-neutral-800">
+              <TabsTrigger value="usage" className="data-[state=active]:bg-neutral-800">
+                Usage & Costs
+              </TabsTrigger>
+              <TabsTrigger value="tools" className="data-[state=active]:bg-neutral-800">
+                Tools & Skills
+              </TabsTrigger>
+              <TabsTrigger value="config" className="data-[state=active]:bg-neutral-800">
+                Configuration
+              </TabsTrigger>
+            </TabsList>
           </div>
-        )}
 
-        {tab === 'tools' && (
-          <div className="max-w-5xl space-y-6">
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <label className="text-sm font-semibold text-neutral-300 block mb-3">Global Skills ({skills.length} total)</label>
-                <div className="relative">
-                  <button
-                    onClick={() => setShowSkillDropdown(!showSkillDropdown)}
-                    className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-4 text-left text-neutral-300 hover:bg-neutral-750 flex justify-between items-center text-base"
-                  >
-                    <span>{selectedSkill || 'Select a skill...'}</span>
-                    <span className="text-neutral-400">▼</span>
-                  </button>
-
-                  {showSkillDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-800 border border-neutral-700 rounded-lg max-h-64 overflow-y-auto z-50">
-                      {skills.map(skill => (
-                        <button
-                          key={skill.name}
-                          onClick={() => {
-                            setSelectedSkill(skill.name);
-                            setShowSkillDropdown(false);
-                          }}
-                          className="w-full px-4 py-3 text-left text-sm text-neutral-300 hover:bg-neutral-700 border-b border-neutral-700 last:border-b-0"
-                        >
-                          {skill.name}
-                        </button>
-                      ))}
+          {/* Usage Tab */}
+          <TabsContent value="usage" className="flex-1 overflow-y-auto p-6">
+            <div className="space-y-6 max-w-5xl">
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardHeader>
+                  <CardTitle className="text-white">API Usage Overview</CardTitle>
+                  <CardDescription>Real-time usage statistics from Claude Code</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="bg-neutral-950 rounded-lg p-4 border border-neutral-800">
+                      <code className="text-sm text-neutral-300 whitespace-pre-wrap font-mono">{usageText}</code>
                     </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-end">
-                <button
-                  onClick={() => setShowAddSkillModal(true)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-4 rounded-lg font-semibold transition-colors"
-                >
-                  Add Skill
-                </button>
-              </div>
+                    {usageData?.session && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-neutral-400">Current Session</span>
+                          <Badge variant="outline">{Math.round(usageData.session.percent)}% used</Badge>
+                        </div>
+                        <div className="w-full bg-neutral-800 rounded-full h-2">
+                          <div
+                            className="bg-blue-500 h-2 rounded-full"
+                            style={{ width: `${usageData.session.percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    {usageData?.week && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-neutral-400">This Week</span>
+                          <Badge variant="outline" className="border-purple-500/30 text-purple-400">
+                            {Math.round(usageData.week.percent)}% used
+                          </Badge>
+                        </div>
+                        <div className="w-full bg-neutral-800 rounded-full h-2">
+                          <div
+                            className="bg-purple-500 h-2 rounded-full"
+                            style={{ width: `${usageData.week.percent}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardHeader>
+                  <CardTitle className="text-white">Pricing Reference</CardTitle>
+                  <CardDescription>Claude API costs by model</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {[
+                      { name: 'Haiku', input: '$0.003/1M', output: '$0.015/1M', color: 'blue' },
+                      { name: 'Sonnet', input: '$0.003/1M', output: '$0.015/1M', color: 'cyan' },
+                      { name: 'Opus', input: '$0.015/1M', output: '$0.060/1M', color: 'purple' },
+                    ].map(model => (
+                      <div key={model.name} className="flex justify-between items-center p-3 bg-neutral-950 rounded-lg border border-neutral-800">
+                        <div>
+                          <div className="font-medium text-white">{model.name}</div>
+                          <div className="text-xs text-neutral-400">Input {model.input} · Output {model.output}</div>
+                        </div>
+                        <Badge variant="secondary">
+                          {model.color === 'blue' && 'Fast'}
+                          {model.color === 'cyan' && 'Balanced'}
+                          {model.color === 'purple' && 'Powerful'}
+                        </Badge>
+                      </div>
+                    ))}
+                    <Separator className="bg-neutral-800 my-4" />
+                    <div className="text-xs text-neutral-400 space-y-2">
+                      <p>• Cache reads: <strong>$0.00075/1M</strong> (90% discount)</p>
+                      <p>• Cache writes: <strong>$0.0075/1M</strong> (4x cost)</p>
+                      <p>Run <code className="bg-neutral-950 px-2 py-1 rounded text-blue-300">./usage</code> in Claude Code to see your breakdown</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
+          </TabsContent>
 
-            <div className="bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-lg p-6 border border-neutral-700">
-              <h3 className="text-base font-semibold text-white mb-2">Skills Location</h3>
-              <p className="text-sm text-neutral-400">~/.claude/skills/</p>
-            </div>
-
-            <div className="bg-gradient-to-br from-neutral-800 to-neutral-900 rounded-lg p-6 border border-neutral-700">
-              <h3 className="text-base font-semibold text-white mb-3">Tool Analysis</h3>
-              <p className="text-sm text-neutral-400">All agent tools are active and contributing to operations.</p>
-            </div>
-          </div>
-        )}
-
-        {tab === 'config' && (
-          <div className="max-w-5xl space-y-6">
-            <div>
-              <label className="text-sm font-semibold text-neutral-300 block mb-3">Memory Files ({memoryFiles.length} files)</label>
-              <div className="relative">
-                <button
-                  onClick={() => setShowMemoryDropdown(!showMemoryDropdown)}
-                  className="w-full bg-neutral-800 border border-neutral-700 rounded-lg p-4 text-left text-neutral-300 hover:bg-neutral-750 flex justify-between items-center text-base"
-                >
-                  <span>{selectedMemory || 'Select a memory file...'}</span>
-                  <span className="text-neutral-400">▼</span>
-                </button>
-
-                {showMemoryDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-neutral-800 border border-neutral-700 rounded-lg max-h-96 overflow-y-auto z-50">
-                    {['index', 'skills', 'builds', 'android', 'supabase', 'other'].map(category => {
-                      const categoryFiles = memoryFiles.filter(f => f.category === category);
-                      if (categoryFiles.length === 0) return null;
-                      return (
-                        <div key={category}>
-                          <div className="px-4 py-3 text-xs font-semibold text-neutral-400 bg-neutral-750 sticky top-0">
-                            {category.toUpperCase()}
-                          </div>
-                          {categoryFiles.map(file => (
-                            <button
-                              key={file.name}
-                              onClick={() => {
-                                setSelectedMemory(file.name);
-                                handleMemorySelect(file.path);
-                                setShowMemoryDropdown(false);
-                              }}
-                              className="w-full px-4 py-3 text-left text-sm text-neutral-300 hover:bg-neutral-700 border-b border-neutral-700 last:border-b-0"
-                            >
-                              {file.name}
-                            </button>
+          {/* Tools Tab */}
+          <TabsContent value="tools" className="flex-1 overflow-y-auto p-6">
+            <div className="space-y-6 max-w-5xl">
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardHeader>
+                  <CardTitle className="text-white">Global Skills</CardTitle>
+                  <CardDescription>{skills.length} skills available</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {skills.length > 0 ? (
+                      <ScrollArea className="h-64 rounded-lg border border-neutral-800 bg-neutral-950">
+                        <div className="p-4 space-y-2">
+                          {skills.map(skill => (
+                            <div key={skill.name} className="px-3 py-2 rounded-md hover:bg-neutral-800 transition-colors">
+                              <div className="text-sm font-medium text-white">{skill.name}</div>
+                              <div className="text-xs text-neutral-500">{skill.path}</div>
+                            </div>
                           ))}
                         </div>
-                      );
-                    })}
+                      </ScrollArea>
+                    ) : (
+                      <div className="text-center py-8 text-neutral-400">
+                        No skills yet. Create one to get started.
+                      </div>
+                    )}
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700">
+                          Add New Skill
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="bg-neutral-900 border-neutral-800">
+                        <DialogHeader>
+                          <DialogTitle className="text-white">Create New Skill</DialogTitle>
+                          <DialogDescription>Add a new skill to your global skills folder</DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <Label htmlFor="skill-name" className="text-neutral-300">Skill Name</Label>
+                            <Input
+                              id="skill-name"
+                              placeholder="my-awesome-skill"
+                              value={newSkillName}
+                              onChange={(e) => setNewSkillName(e.target.value)}
+                              className="bg-neutral-800 border-neutral-700 text-white placeholder:text-neutral-500"
+                            />
+                          </div>
+                          <Button
+                            onClick={handleAddSkill}
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                          >
+                            Create Skill
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
-                )}
-              </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardHeader>
+                  <CardTitle className="text-white">Agent Tools</CardTitle>
+                  <CardDescription>Status and usage</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-neutral-950 rounded-lg border border-neutral-800">
+                      <div>
+                        <div className="font-medium text-white">All Tools Active</div>
+                        <div className="text-xs text-neutral-400">Contributing to operations</div>
+                      </div>
+                      <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Active</Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
+          </TabsContent>
 
-            {selectedMemoryContent && (
-              <div>
-                <h3 className="text-base font-semibold text-white mb-3">{selectedMemory}</h3>
-                <div className="bg-neutral-800 rounded-lg p-4 border border-neutral-700 max-h-96 overflow-y-auto">
-                  <pre className="text-xs text-neutral-300 whitespace-pre-wrap break-words font-mono">
-                    {selectedMemoryContent}
-                  </pre>
-                </div>
-              </div>
-            )}
+          {/* Config Tab */}
+          <TabsContent value="config" className="flex-1 overflow-y-auto p-6">
+            <div className="space-y-6 max-w-5xl">
+              <Card className="bg-neutral-900 border-neutral-800">
+                <CardHeader>
+                  <CardTitle className="text-white">Memory Files</CardTitle>
+                  <CardDescription>{memoryFiles.length} files in your memory</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {memoryFiles.length > 0 ? (
+                      <ScrollArea className="h-72 rounded-lg border border-neutral-800 bg-neutral-950">
+                        <div className="p-4 space-y-4">
+                          {['index', 'skills', 'builds', 'android', 'supabase', 'other'].map(category => {
+                            const categoryFiles = memoryFiles.filter(f => f.category === category);
+                            if (categoryFiles.length === 0) return null;
+                            return (
+                              <div key={category}>
+                                <div className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-2">
+                                  {category}
+                                </div>
+                                <div className="space-y-1 ml-2">
+                                  {categoryFiles.map(file => (
+                                    <button
+                                      key={file.name}
+                                      onClick={() => {
+                                        setSelectedMemory(file.name);
+                                        handleMemorySelect(file.path);
+                                      }}
+                                      className="w-full text-left px-3 py-2 rounded-md text-sm text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200 transition-colors"
+                                    >
+                                      {file.name}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </ScrollArea>
+                    ) : (
+                      <div className="text-center py-8 text-neutral-400">
+                        No memory files yet.
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
-            {claudeMd && (
-              <div>
-                <h3 className="text-base font-semibold text-white mb-3">CLAUDE.md</h3>
-                <div className="bg-neutral-800 rounded-lg p-4 border border-neutral-700 max-h-64 overflow-y-auto">
-                  <pre className="text-xs text-neutral-300 whitespace-pre-wrap break-words font-mono">
-                    {claudeMd.slice(0, 800)}...
-                  </pre>
-                </div>
-              </div>
-            )}
+              {selectedMemoryContent && (
+                <Card className="bg-neutral-900 border-neutral-800">
+                  <CardHeader>
+                    <CardTitle className="text-white text-base">{selectedMemory}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-64 rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+                      <code className="text-xs text-neutral-300 whitespace-pre-wrap font-mono">
+                        {selectedMemoryContent}
+                      </code>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
 
-            {claudeConfig && (
-              <div>
-                <h3 className="text-base font-semibold text-white mb-3">claude.json</h3>
-                <div className="bg-neutral-800 rounded-lg p-4 border border-neutral-700 max-h-64 overflow-y-auto">
-                  <pre className="text-xs text-neutral-300 whitespace-pre-wrap break-words font-mono">
-                    {claudeConfig.slice(0, 800)}...
-                  </pre>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+              {claudeMd && (
+                <Card className="bg-neutral-900 border-neutral-800">
+                  <CardHeader>
+                    <CardTitle className="text-white text-base">CLAUDE.md</CardTitle>
+                    <CardDescription>Project instructions</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-48 rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+                      <code className="text-xs text-neutral-300 whitespace-pre-wrap font-mono">
+                        {claudeMd.slice(0, 600)}...
+                      </code>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+
+              {claudeConfig && (
+                <Card className="bg-neutral-900 border-neutral-800">
+                  <CardHeader>
+                    <CardTitle className="text-white text-base">claude.json</CardTitle>
+                    <CardDescription>Configuration</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ScrollArea className="h-48 rounded-lg border border-neutral-800 bg-neutral-950 p-4">
+                      <code className="text-xs text-neutral-300 whitespace-pre-wrap font-mono">
+                        {claudeConfig.slice(0, 600)}...
+                      </code>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
-
-      {showAddSkillModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-neutral-900 rounded-lg p-8 w-96 border border-neutral-700">
-            <h2 className="text-lg font-semibold text-white mb-4">Add New Skill</h2>
-            <input
-              type="text"
-              value={newSkillName}
-              onChange={(e) => setNewSkillName(e.target.value)}
-              placeholder="Skill name"
-              className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-4 py-3 text-neutral-300 placeholder-neutral-500 mb-6 text-base"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setNewSkillName('');
-                  setShowAddSkillModal(false);
-                }}
-                className="flex-1 px-4 py-3 rounded-lg border border-neutral-700 text-neutral-300 hover:bg-neutral-800 transition-colors font-medium"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAddSkill}
-                className="flex-1 px-4 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors"
-              >
-                Create
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
