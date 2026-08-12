@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Manager};
 
-const APP_NAME: &str = "Agent Launcher ADE";
+const APP_NAME: &str = "Clawd";
 
 #[cfg(windows)]
 const TOAST_AUMID: &str = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe";
