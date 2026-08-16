@@ -107,7 +107,7 @@ pub struct DirEntry {
 }
 
 #[tauri::command]
-pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
+pub fn list_dir(path: String, show_hidden: bool) -> Result<Vec<DirEntry>, String> {
     let mut out = Vec::new();
     let rd = std::fs::read_dir(&path).map_err(|e| e.to_string())?;
     let mut entries: Vec<_> = rd.flatten().collect();
@@ -117,7 +117,7 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
     });
     for e in entries {
         let name = e.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') {
+        if name.starts_with('.') && !show_hidden {
             continue;
         }
         let p = e.path();
@@ -134,6 +134,62 @@ pub fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
             is_dir,
         });
     }
+    Ok(out)
+}
+
+const SEARCH_SKIP_DIRS: [&str; 7] = [
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    "build",
+    "__pycache__",
+    ".venv",
+];
+
+#[tauri::command]
+pub fn search_files(root: String, query: String, show_hidden: bool) -> Result<Vec<DirEntry>, String> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(&root)];
+    let mut scanned = 0usize;
+    while let Some(dir) = stack.pop() {
+        if out.len() >= 200 || scanned >= 20_000 {
+            break;
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.flatten() {
+            scanned += 1;
+            if scanned >= 20_000 {
+                break;
+            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') && !show_hidden {
+                continue;
+            }
+            let p = entry.path();
+            let is_dir = p.is_dir();
+            if is_dir {
+                if !SEARCH_SKIP_DIRS.contains(&name.as_str()) {
+                    stack.push(p.clone());
+                }
+            }
+            if name.to_lowercase().contains(&needle) {
+                out.push(DirEntry {
+                    name,
+                    path: p.to_string_lossy().to_string(),
+                    is_dir,
+                });
+                if out.len() >= 200 {
+                    break;
+                }
+            }
+        }
+    }
+    out.sort_by_key(|e| (!e.is_dir, e.name.to_lowercase()));
     Ok(out)
 }
 

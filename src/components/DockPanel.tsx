@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 import { useStore } from '../lib/store';
 import { backend, DirEntry } from '../lib/backend';
 import { DEVICE_PRESETS, WorkspaceState } from '../lib/types';
@@ -155,34 +156,77 @@ function EditorTab({ ws }: { ws: WorkspaceState }) {
   const [content, setContent] = useState('');
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [showHidden, setShowHidden] = useState(true);
+  const [copied, setCopied] = useState(false);
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<DirEntry[]>([]);
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
-    void backend.listDir(cwd).then(setEntries).catch(() => setEntries([]));
-  }, []);
+    void backend.listDir(cwd, showHidden).then(setEntries).catch(() => setEntries([]));
+  }, [showHidden]);
+
+  useEffect(() => {
+    const q = query.trim();
+    if (!q) {
+      setResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      void backend.searchFiles(cwd, q, showHidden)
+        .then(setResults)
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [query, cwd, showHidden]);
+
+  const confirmDiscard = () => !dirty || window.confirm('Discard unsaved changes to this file?');
 
   const openDir = (path: string) => {
+    if (!confirmDiscard()) return;
+    setQuery('');
     setCwd(path);
-    void backend.listDir(path).then(setEntries).catch(() => setEntries([]));
+    void backend.listDir(path, showHidden).then(setEntries).catch(() => setEntries([]));
   };
 
   const openFile = async (path: string) => {
+    if (!confirmDiscard()) return;
     const text = await backend.readTextFile(path).catch(() => '');
     setContent(text);
     setDirty(false);
     setSaved(false);
+    setSaveError(false);
     setDock(ws.id, { editorPath: path });
   };
 
   const save = async () => {
     if (!dock.editorPath) return;
-    await backend.writeTextFile(dock.editorPath, content).catch(() => {});
-    setDirty(false);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1500);
+    try {
+      await backend.writeTextFile(dock.editorPath, content);
+      setDirty(false);
+      setSaved(true);
+      setSaveError(false);
+      window.setTimeout(() => setSaved(false), 1500);
+    } catch {
+      setSaveError(true);
+      window.setTimeout(() => setSaveError(false), 2500);
+    }
+  };
+
+  const copyCwd = () => {
+    void writeText(cwd).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    });
   };
 
   const parent = cwd.replace(/[\\/][^\\/]*$/, '') || cwd;
   const fileName = dock.editorPath ? dock.editorPath.replace(/^.*[\\/]/, '') : '';
+  const showing = query.trim() ? results : entries;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -201,26 +245,47 @@ function EditorTab({ ws }: { ws: WorkspaceState }) {
         <div className="edt-path" title={cwd}>
           <button className="brw-nav" title="Up one folder" onClick={() => openDir(parent)}>↑</button>
           <span className="edt-cwd">{cwd || 'no folder'}</span>
+          <button className="brw-nav" title="Copy folder path" onClick={copyCwd}>{copied ? '✓' : '⧉'}</button>
+        </div>
+        <div className="edt-tools">
+          <input
+            className="edt-search"
+            value={query}
+            spellCheck={false}
+            placeholder="Search files"
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <button
+            className={`brw-chip${showHidden ? ' active' : ''}`}
+            title="Show hidden files and folders"
+            onClick={() => setShowHidden((v) => !v)}
+          >
+            Hidden
+          </button>
         </div>
         <div className="edt-list">
-          {entries.map((e) => (
+          {showing.map((e) => (
             <button
               key={e.path}
               className={`edt-item${dock.editorPath === e.path ? ' active' : ''}`}
+              title={e.path}
               onClick={() => (e.isDir ? openDir(e.path) : void openFile(e.path))}
             >
               <span className="edt-icon">{e.isDir ? '▸' : '·'}</span>
               <span className="edt-nm">{e.name}</span>
             </button>
           ))}
-          {entries.length === 0 && <p className="edt-empty">Empty or unreadable folder.</p>}
+          {searching && <p className="edt-empty">Searching...</p>}
+          {!searching && showing.length === 0 && (
+            <p className="edt-empty">{query.trim() ? 'No matching files.' : 'Empty or unreadable folder.'}</p>
+          )}
         </div>
       </div>
       <div className="edt-main">
         <div className="edt-head">
           <span className="edt-file">{fileName || 'Pick a file to edit'}{dirty ? ' •' : ''}</span>
           <button className="brw-open" disabled={!dock.editorPath} onClick={() => void save()}>
-            {saved ? 'Saved' : 'Save'}
+            {saveError ? 'Save failed' : saved ? 'Saved' : 'Save'}
           </button>
         </div>
         <textarea

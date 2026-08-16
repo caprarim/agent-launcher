@@ -1102,6 +1102,28 @@ body.dragging { cursor: grabbing; }
   text-align: left;
 }
 
+.edt-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+
+.edt-search {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+.edt-search:focus { border-color: var(--accent); outline: none; }
+.edt-search::placeholder { color: var(--ink-faint); }
+
 .edt-list { flex: 1; overflow-y: auto; padding: 4px; }
 
 .edt-item {

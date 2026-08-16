@@ -99,6 +99,7 @@ pub fn run() {
             notify::notify_agent_done,
             files::clipboard_image_file,
             files::list_dir,
+            files::search_files,
             files::read_text_file,
             files::write_text_file,
             files::create_dir,

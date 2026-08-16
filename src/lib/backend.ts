@@ -41,7 +41,9 @@ export const backend = {
     invoke<string>('ensure_workspace_config', { workspaceId }),
   listAccounts: () => invoke<ClaudeAccount[]>('list_accounts'),
   createAccount: (name: string) => invoke<ClaudeAccount>('create_account', { name }),
-  listDir: (path: string) => invoke<DirEntry[]>('list_dir', { path }),
+  listDir: (path: string, showHidden = false) => invoke<DirEntry[]>('list_dir', { path, showHidden }),
+  searchFiles: (root: string, query: string, showHidden = false) =>
+    invoke<DirEntry[]>('search_files', { root, query, showHidden }),
   readTextFile: (path: string) => invoke<string>('read_text_file', { path }),
   writeTextFile: (path: string, content: string) => invoke<void>('write_text_file', { path, content }),
   createDir: (path: string) => invoke<void>('create_dir', { path }),
