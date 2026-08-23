@@ -296,6 +296,19 @@ export default function SettingsPanel() {
           onChange={(e) => setSettings({ claudeCommand: e.target.value })}
         />
       </div>
+
+      <div className="settings-section">
+        <label className="settings-label">Codex launch command</label>
+        <input
+          className="settings-input"
+          value={settings.codexCommand}
+          spellCheck={false}
+          onChange={(e) => setSettings({ codexCommand: e.target.value })}
+        />
+        <p className="settings-note">
+          Runs the Codex CLI with every approval and the sandbox turned off, the same way the Claude command skips permissions.
+        </p>
+      </div>
     </div>
   );
 }

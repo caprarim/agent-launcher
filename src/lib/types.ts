@@ -1,4 +1,11 @@
-export type AgentType = 'claude';
+export type AgentType = 'claude' | 'codex';
+
+export const AGENT_TYPES: AgentType[] = ['claude', 'codex'];
+
+export const AGENT_LABELS: Record<AgentType, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+};
 
 export type AgentStatus = 'starting' | 'running' | 'working' | 'asking' | 'done' | 'exited';
 
@@ -103,6 +110,7 @@ export interface LaunchPreset {
   id: string;
   label: string;
   count: number;
+  type: AgentType;
 }
 
 export interface Settings {
@@ -114,6 +122,7 @@ export interface Settings {
   announceDone: boolean;
   defaultCwd: string;
   claudeCommand: string;
+  codexCommand: string;
   presets: LaunchPreset[];
   showTranscript: boolean;
   micDevice: string;
@@ -133,9 +142,12 @@ export const GROQ_CHAT_MODELS = [
 export const GROQ_VOICE_MODEL = 'whisper-large-v3-turbo';
 
 export const DEFAULT_PRESETS: LaunchPreset[] = [
-  { id: 'p1', label: '1 Claude', count: 1 },
-  { id: 'p3', label: '3 Claude', count: 3 },
-  { id: 'p6', label: '6 Claude', count: 6 },
+  { id: 'p1', label: '1 Claude', count: 1, type: 'claude' },
+  { id: 'p3', label: '3 Claude', count: 3, type: 'claude' },
+  { id: 'p6', label: '6 Claude', count: 6, type: 'claude' },
+  { id: 'x1', label: '1 Codex', count: 1, type: 'codex' },
+  { id: 'x3', label: '3 Codex', count: 3, type: 'codex' },
+  { id: 'x6', label: '6 Codex', count: 6, type: 'codex' },
 ];
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -147,6 +159,7 @@ export const DEFAULT_SETTINGS: Settings = {
   announceDone: true,
   defaultCwd: 'C:\\dev',
   claudeCommand: 'claude --dangerously-skip-permissions',
+  codexCommand: 'codex --dangerously-bypass-approvals-and-sandbox',
   presets: DEFAULT_PRESETS,
   showTranscript: true,
   micDevice: '',
@@ -156,3 +169,8 @@ export const DEFAULT_SETTINGS: Settings = {
   focusW: 560,
   focusH: 760,
 };
+
+export function agentCommand(settings: Settings, type: AgentType): string {
+  if (type === 'codex') return settings.codexCommand || DEFAULT_SETTINGS.codexCommand;
+  return settings.claudeCommand || DEFAULT_SETTINGS.claudeCommand;
+}

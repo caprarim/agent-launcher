@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import '@xterm/xterm/css/xterm.css';
-import { AgentCard } from '../lib/types';
+import { AgentCard, agentCommand } from '../lib/types';
 import { useStore } from '../lib/store';
 import { backend, bindTerminal, bindScreen } from '../lib/backend';
 import { displayName } from '../lib/names';
@@ -211,7 +211,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
       }).catch(() => {});
     });
 
-    const command = settings.claudeCommand || 'claude';
+    const command = agentCommand(settings, agent.type);
     const settleTimers: number[] = [];
 
     const start = async () => {
@@ -229,7 +229,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
           cols: term.cols,
           rows: term.rows,
           workspaceId: agent.workspaceId,
-          configDir,
+          configDir: agent.type === 'claude' ? configDir : undefined,
         })
         .catch((e) => ({ success: false, error: String(e), existing: false }));
       if (disposed) return;
@@ -348,7 +348,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
       {agent.minimized && agent.lastLine && (
         <div className="card-lastline" title={agent.lastLine}>{agent.lastLine}</div>
       )}
-      {!agent.minimized && <UsageBar agentId={agent.id} configDir={configDir} />}
+      {!agent.minimized && agent.type === 'claude' && <UsageBar agentId={agent.id} configDir={configDir} />}
       {!agent.expanded && !agent.minimized && !focused && (
         <>
           <div className="card-edge-r" onPointerDown={(e) => beginDrag(e, 'resize-r')} />

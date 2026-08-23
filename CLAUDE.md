@@ -21,8 +21,11 @@ whisper; local inference on this CPU took minutes per reply and must not come ba
 - Voice to text: `whisper-large-v3-turbo` via `/openai/v1/audio/transcriptions`.
 - Key: `GROQ_API_KEY` env var, else `groq.json` in `%APPDATA%\com.agentterminals.ade`. Settings panel can save it (`groq_key_set`). Never commit the key.
 
-Claude Code only. There is no Codex, Gemini, or any other agent type, and no HTTP anywhere
-in the running app (the old localhost control server is not started).
+Claude Code and Codex only. Agent cards carry a `type` (`claude` or `codex`); the launch
+command per type lives in settings (`claudeCommand`, `codexCommand`, defaults
+`claude --dangerously-skip-permissions` and `codex --dangerously-bypass-approvals-and-sandbox`),
+and quick launch presets carry a type too. There is no Gemini or any other agent type, and no
+HTTP anywhere in the running app (the old localhost control server is not started).
 
 ## Main files
 

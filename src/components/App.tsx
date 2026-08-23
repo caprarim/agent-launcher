@@ -12,6 +12,7 @@ import { noteEvent, launchAgents } from '../lib/orchestrator';
 import { bottom, detectAsking, isBusyScreen, isIdleScreen } from '../lib/screen';
 import { armChime, playChime } from '../lib/chime';
 import { applyZoom, nextZoom, zoomAction } from '../lib/zoom';
+import { AgentType } from '../lib/types';
 
 function lastMeaningfulLine(text: string): string {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
@@ -21,7 +22,10 @@ function lastMeaningfulLine(text: string): string {
 const CONFIRM_IDLE_MS = 700;
 const RETRY_IDLE_MS = 600;
 const MAX_SETTLE_TRIES = 200;
-const DONE_MESSAGE = 'Claude has finished working.';
+const DONE_MESSAGE: Record<AgentType, string> = {
+  claude: 'Claude has finished working.',
+  codex: 'Codex has finished working.',
+};
 
 export default function App() {
   const settingsOpen = useStore((s) => s.settingsOpen);
@@ -101,7 +105,7 @@ export default function App() {
       if (live.settings.announceDone) {
         playChime(asking ? 'asking' : 'done');
       }
-      void backend.notifyAgentDone(DONE_MESSAGE);
+      void backend.notifyAgentDone(DONE_MESSAGE[now.type] || DONE_MESSAGE.claude);
       noteEvent(asking
         ? `${now.name} is waiting for your input${now.taskLabel ? ` on ${now.taskLabel}` : ''} and needs an answer from you before it can continue`
         : `${now.name} finished working${now.taskLabel ? ` on ${now.taskLabel}` : ''}`);
@@ -275,7 +279,8 @@ export default function App() {
           <span className="brand-dot" />
           Agent Launcher
         </span>
-        <button className="top-btn primary" onClick={() => launchAgents(1)}>Add Claude Agent</button>
+        <button className="top-btn primary" onClick={() => launchAgents(1, 'claude')}>Add Claude Agent</button>
+        <button className="top-btn primary" onClick={() => launchAgents(1, 'codex')}>Add Codex Agent</button>
         {hasAgents && (
           <button
             className={`top-btn${tileMode ? ' on' : ''}`}

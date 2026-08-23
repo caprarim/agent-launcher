@@ -1,6 +1,6 @@
 import { backend, GroqChatResponse, readScreen, dlog } from './backend';
 import { useStore } from './store';
-import { ChatMessage, AgentType } from './types';
+import { AGENT_LABELS, AGENT_TYPES, agentCommand, ChatMessage, AgentType } from './types';
 import { NAME_POOL, MAX_AGENTS, pickNames, displayName } from './names';
 import { deriveTitle } from './naming';
 
@@ -13,8 +13,9 @@ const SIDE_EFFECT_TOOLS = new Set([
 ]);
 
 const TOOLS = [
-  tool('launch_agents', 'Launch one or more Claude coding agents. Give each a task when the user described work to do.', {
+  tool('launch_agents', 'Launch one or more coding agents, Claude Code or Codex. Give each a task when the user described work to do.', {
     count: { type: 'integer', description: 'How many agents to launch' },
+    agent: { type: 'string', enum: ['claude', 'codex'], description: 'Which coding agent to launch, claude or codex. Use codex only when the user asked for codex. Defaults to claude.' },
     names: { type: 'array', items: { type: 'string' }, description: 'Names for the agents, picked from the available pool' },
     tasks: { type: 'array', items: { type: 'string' }, description: 'One task per agent, copied word for word from what the user asked for, never rephrased or invented' },
   }, ['count']),
@@ -57,6 +58,7 @@ function systemPrompt(): string {
   // win on CPU where re evaluating the tools schema every turn dominates latency.
   return [
     'You are the voice assistant of Agent Launcher. You are a smart, capable, general purpose assistant first, and the orchestrator of a team of AI coding agents second.',
+    'Two kinds of coding agent are available: claude, which is Claude Code, and codex, which is the Codex CLI. Launch codex only when the user asked for codex, otherwise launch claude.',
     'Answer any question, help with research, brainstorm, explain things, and hold a normal conversation. Be genuinely helpful and knowledgeable, like a strong general assistant.',
     'You also command real coding agents that run in terminals. Use a tool only when the user actually wants agents launched or driven, a preview opened, or a workspace switched. For ordinary questions and conversation, just answer directly without any tool.',
     'Never invent agents, results, or facts. If you are unsure, say so.',
@@ -76,8 +78,8 @@ function systemPrompt(): string {
   ].join('\n');
 }
 
-// Claude Code is up and showing its input box. Any one of these is enough.
-const READY_MARKERS = [
+// The agent CLI is up and showing its input box. Any one of these is enough.
+const CLAUDE_READY_MARKERS = [
   /for shortcuts/i,
   /bypass permissions/i,
   /Welcome to Claude Code/i,
@@ -86,11 +88,27 @@ const READY_MARKERS = [
   /esc to interrupt/i,
 ];
 
+const CODEX_READY_MARKERS = [
+  /OpenAI Codex/i,
+  /Codex CLI/i,
+  /\bcodex\b[^\n]{0,20}v\d/i,
+  /describe a task/i,
+  /send a message/i,
+  /Ctrl\+C to (?:quit|exit)/i,
+  /esc to interrupt/i,
+  /bypass approvals/i,
+  /danger-full-access/i,
+];
+
+function readyMarkers(type: AgentType) {
+  return type === 'codex' ? CODEX_READY_MARKERS : CLAUDE_READY_MARKERS;
+}
+
 // A bare shell prompt sitting at the end of the buffer means the CLI is NOT
 // running: either it has not started yet or it died. Typing here would hand the
 // task to cmd.exe, which is exactly the bug this guards against.
 const SHELL_PROMPT = /(?:[A-Za-z]:\\[^\r\n]*|\$|#|>)\s*$/;
-const CLI_MISSING = /is not recognized as an internal or external command/i;
+const CLI_MISSING = /is not recognized as an internal or external command|command not found/i;
 
 const READY_TIMEOUT_MS = 120_000;
 const READY_POLL_MS = 1000;
@@ -98,11 +116,13 @@ const READY_POLL_MS = 1000;
 type Readiness = 'ready' | 'not-started' | 'missing';
 
 async function probeAgent(id: string): Promise<Readiness> {
+  const type = useStore.getState().agents.find((a) => a.id === id)?.type || 'claude';
+  const markers = readyMarkers(type);
   const screen = readScreen(id);
   if (screen !== undefined && screen.trim()) {
     let state: Readiness = 'not-started';
     if (CLI_MISSING.test(screen)) state = 'missing';
-    else if (READY_MARKERS.some((re) => re.test(screen))) state = 'ready';
+    else if (markers.some((re) => re.test(screen))) state = 'ready';
     dlog(`probe ${id} screen ${state} tail=${JSON.stringify(screen.trimEnd().slice(-90))}`);
     return state;
   }
@@ -110,7 +130,7 @@ async function probeAgent(id: string): Promise<Readiness> {
   if (CLI_MISSING.test(out)) return 'missing';
   const tail = out.replace(/[ \t]+$/g, '').trimEnd();
   const state: Readiness =
-    READY_MARKERS.some((re) => re.test(out)) && !SHELL_PROMPT.test(tail) ? 'ready' : 'not-started';
+    markers.some((re) => re.test(out)) && !SHELL_PROMPT.test(tail) ? 'ready' : 'not-started';
   dlog(`probe ${id} stream ${state} tail=${JSON.stringify(tail.slice(-90))}`);
   return state;
 }
@@ -144,18 +164,20 @@ async function sendToAgent(id: string, text: string, timeoutMs = READY_TIMEOUT_M
   return 'ready';
 }
 
-function readinessError(name: string, state: Readiness): string {
+function readinessError(name: string, state: Readiness, type: AgentType): string {
+  const cli = agentCommand(useStore.getState().settings, type).split(/\s+/)[0] || type;
   return state === 'missing'
-    ? `The claude command was not found in ${name}'s terminal, so nothing was sent. Check the claude command in settings.`
+    ? `The ${cli} command was not found in ${name}'s terminal, so nothing was sent. Check the ${AGENT_LABELS[type]} launch command in settings.`
     : `${name} has not finished starting, so nothing was sent. Try again in a moment.`;
 }
 
-export function launchAgents(count: number): void {
+export function launchAgents(count: number, type: AgentType = 'claude'): void {
   const st = useStore.getState();
+  const kind: AgentType = AGENT_TYPES.includes(type) ? type : 'claude';
   const room = MAX_AGENTS - st.agents.length;
   const n = Math.max(0, Math.min(count, room));
   for (let i = 0; i < n; i++) {
-    primeAndTask(st.addAgent('claude').id);
+    primeAndTask(st.addAgent(kind).id);
   }
   if (n > 0) setTimeout(() => void backend.focusMain(), 1400);
 }
@@ -173,7 +195,7 @@ export function primeAndTask(id: string, task?: string): void {
       st.updateAgent(id, { status: 'working' });
     } else {
       st.updateAgent(id, { status: state === 'missing' ? 'exited' : 'running' });
-      noteEvent(readinessError(displayName(agent.name), state));
+      noteEvent(readinessError(displayName(agent.name), state, agent.type));
     }
   }, 1500);
 }
@@ -205,7 +227,8 @@ async function execTool(name: string, args: Record<string, unknown>): Promise<To
   const wsId = st.activeWorkspaceId;
   switch (name) {
     case 'launch_agents': {
-      const type: AgentType = 'claude';
+      const asked = String(args.agent || args.type || 'claude').toLowerCase();
+      const type: AgentType = asked.includes('codex') ? 'codex' : 'claude';
       const live = useStore.getState();
       const tasks = Array.isArray(args.tasks) ? (args.tasks as string[]).filter(Boolean) : [];
       let names = Array.isArray(args.names) ? (args.names as string[]).filter(Boolean) : [];
@@ -224,7 +247,7 @@ async function execTool(name: string, args: Record<string, unknown>): Promise<To
       const handed = tasks.length
         ? ' Their tasks are already queued and will be typed in automatically once each one boots. Do not call prompt_agent for them.'
         : '';
-      return { text: `Launched ${count} ${type} agent${count > 1 ? 's' : ''}: ${names.map(displayName).join(', ')}.${handed}` };
+      return { text: `Launched ${count} ${AGENT_LABELS[type]} agent${count > 1 ? 's' : ''}: ${names.map(displayName).join(', ')}.${handed}` };
     }
     case 'prompt_agent': {
       const agent = st.agentByName(String(args.name || ''));
@@ -232,7 +255,7 @@ async function execTool(name: string, args: Record<string, unknown>): Promise<To
       const prompt = String(args.prompt || '').replace(/\s*\n\s*/g, ' ').trim();
       if (!prompt) return { text: 'Empty prompt, nothing sent.' };
       const state = await sendToAgent(agent.id, prompt, 25_000);
-      if (state !== 'ready') return { text: readinessError(displayName(agent.name), state) };
+      if (state !== 'ready') return { text: readinessError(displayName(agent.name), state, agent.type) };
       st.updateAgent(agent.id, { status: 'working', taskLabel: deriveTitle(prompt) || agent.taskLabel });
       return { text: `Sent to ${displayName(agent.name)}. Do not send it again.` };
     }
@@ -290,7 +313,7 @@ function forcedTool(text: string): string | undefined {
   const st = useStore.getState();
   const named = st.agents.some((a) => lower.includes(a.name.toLowerCase()));
   if (named && /\b(prompt|tell|ask|send|have|instruct|order|task|get)\b/.test(lower)) return 'prompt_agent';
-  if (/\b(launch|start|spin up|create|add|open)\b[^.?!]*\b(agent|agents|claude)\b/.test(lower)) return 'launch_agents';
+  if (/\b(launch|start|spin up|create|add|open)\b[^.?!]*\b(agent|agents|claude|codex)\b/.test(lower)) return 'launch_agents';
   return undefined;
 }
 

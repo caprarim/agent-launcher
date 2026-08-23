@@ -1185,7 +1185,7 @@ body.dragging { cursor: grabbing; }
 
 .empty-mark { margin-bottom: 4px; opacity: 0.9; }
 
-.empty-actions { margin-top: 14px; }
+.empty-actions { margin-top: 14px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 
 .launch-btn {
   padding: 10px 20px;
@@ -1272,6 +1272,14 @@ body.dragging { cursor: grabbing; }
   font-size: 0.88rem;
 }
 .preset-count { width: 56px; text-align: center; }
+.preset-kind {
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--ink-mute);
+  font-size: 0.88rem;
+}
 .preset-save {
   padding: 5px 12px;
   border-radius: 7px;

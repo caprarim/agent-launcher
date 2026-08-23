@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import {
-  AgentCard, AgentType, ClaudeAccount, DEFAULT_PRESETS, DEFAULT_SETTINGS, DockState,
+  AGENT_LABELS, AGENT_TYPES, AgentCard, AgentType, ClaudeAccount, DEFAULT_PRESETS, DEFAULT_SETTINGS, DockState,
   GROQ_CHAT_MODELS, GROQ_VOICE_MODEL, LaunchPreset, LogEntry, OrchestratorState, Settings, WorkspaceState,
 } from './types';
 import { displayName, pickNames } from './names';
@@ -67,7 +67,7 @@ interface StoreState {
   setProfilerOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
 
-  addPreset: (label: string, count: number) => void;
+  addPreset: (label: string, count: number, type: AgentType) => void;
   removePreset: (id: string) => void;
 }
 
@@ -368,10 +368,11 @@ export const useStore = create<StoreState>()(
       setProfilerOpen: (open) => set({ profilerOpen: open }),
       setPaletteOpen: (open) => set({ paletteOpen: open }),
 
-      addPreset: (label, count) => {
-        const clean = label.trim().slice(0, 24) || `${count} Claude`;
+      addPreset: (label, count, type) => {
+        const kind: AgentType = AGENT_TYPES.includes(type) ? type : 'claude';
         const n = Math.max(1, Math.min(6, Math.round(count)));
-        const preset: LaunchPreset = { id: `p${Date.now()}`, label: clean, count: n };
+        const clean = label.trim().slice(0, 24) || `${n} ${AGENT_LABELS[kind]}`;
+        const preset: LaunchPreset = { id: `p${Date.now()}`, label: clean, count: n, type: kind };
         set((st) => ({ settings: { ...st.settings, presets: [...st.settings.presets, preset] } }));
       },
 
@@ -392,6 +393,7 @@ export const useStore = create<StoreState>()(
           settings.voiceModel = GROQ_VOICE_MODEL;
         }
         if (!settings.claudeCommand) settings.claudeCommand = DEFAULT_SETTINGS.claudeCommand;
+        if (!settings.codexCommand) settings.codexCommand = DEFAULT_SETTINGS.codexCommand;
         if (typeof settings.micDevice !== 'string') settings.micDevice = '';
         if (typeof settings.tileMode !== 'boolean') settings.tileMode = DEFAULT_SETTINGS.tileMode;
         if (typeof settings.uiZoom !== 'number' || !(settings.uiZoom > 0)) {
@@ -407,6 +409,15 @@ export const useStore = create<StoreState>()(
         if (!Array.isArray(settings.micBackups)) settings.micBackups = [];
         if (!Array.isArray(settings.presets) || settings.presets.length === 0) {
           settings.presets = DEFAULT_PRESETS;
+        } else {
+          settings.presets = settings.presets.map((p) =>
+            AGENT_TYPES.includes(p.type) ? p : { ...p, type: 'claude' as AgentType },
+          );
+          for (const preset of DEFAULT_PRESETS) {
+            if (preset.type === 'codex' && !settings.presets.some((p) => p.id === preset.id)) {
+              settings.presets = [...settings.presets, preset];
+            }
+          }
         }
         return { ...current, settings };
       },

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../lib/store';
 import { launchAgents } from '../lib/orchestrator';
-import { WorkspaceState } from '../lib/types';
+import { AGENT_LABELS, AgentType, WorkspaceState } from '../lib/types';
 import TerminalCard from './TerminalCard';
 import DockPanel from './DockPanel';
 
@@ -62,6 +62,7 @@ function EmptyState({ ws }: { ws: WorkspaceState }) {
   const removePreset = useStore((s) => s.removePreset);
   const [adding, setAdding] = useState(false);
   const [count, setCount] = useState(2);
+  const [kind, setKind] = useState<AgentType>('claude');
 
   return (
     <div className="empty-state">
@@ -72,7 +73,8 @@ function EmptyState({ ws }: { ws: WorkspaceState }) {
       <p className="empty-hint">Hold the talk key and say launch three claude agents, or add one below. Each opens as a live terminal.</p>
 
       <div className="empty-actions">
-        <button className="launch-btn" onClick={() => launchAgents(1)}>Add Claude Agent</button>
+        <button className="launch-btn" onClick={() => launchAgents(1, 'claude')}>Add Claude Agent</button>
+        <button className="launch-btn" onClick={() => launchAgents(1, 'codex')}>Add Codex Agent</button>
       </div>
 
       <div className="presets">
@@ -83,7 +85,7 @@ function EmptyState({ ws }: { ws: WorkspaceState }) {
         <div className="presets-row">
           {presets.map((p) => (
             <span className="preset-wrap" key={p.id}>
-              <button className="preset" onClick={() => launchAgents(p.count)}>{p.label}</button>
+              <button className="preset" onClick={() => launchAgents(p.count, p.type)}>{p.label}</button>
               <button className="preset-x" title="Remove preset" onClick={() => removePreset(p.id)}>×</button>
             </span>
           ))}
@@ -99,8 +101,21 @@ function EmptyState({ ws }: { ws: WorkspaceState }) {
               value={count}
               onChange={(e) => setCount(Math.max(1, Math.min(6, Number(e.target.value) || 1)))}
             />
-            <span className="preset-add-label">Claude agents</span>
-            <button className="preset-save" onClick={() => { addPreset(`${count} Claude`, count); setAdding(false); }}>Save</button>
+            <select
+              className="preset-kind"
+              value={kind}
+              onChange={(e) => setKind(e.target.value as AgentType)}
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
+            <span className="preset-add-label">agents</span>
+            <button
+              className="preset-save"
+              onClick={() => { addPreset(`${count} ${AGENT_LABELS[kind]}`, count, kind); setAdding(false); }}
+            >
+              Save
+            </button>
           </div>
         )}
       </div>
