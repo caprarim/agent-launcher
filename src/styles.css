@@ -10,6 +10,10 @@
   --accent: oklch(0.74 0.16 55);
   --accent-soft: oklch(0.74 0.16 55 / 0.16);
   --accent-ink: oklch(0.22 0.05 55);
+  --accent-edge: oklch(0.74 0.16 55 / 0.55);
+  --codex: oklch(0.7 0.17 300);
+  --codex-soft: oklch(0.7 0.17 300 / 0.16);
+  --codex-edge: oklch(0.7 0.17 300 / 0.55);
   --ok: oklch(0.78 0.14 150);
   --danger: oklch(0.68 0.19 25);
   --shadow: 0 12px 32px oklch(0.08 0.02 255 / 0.55), 0 2px 8px oklch(0.08 0.02 255 / 0.4);
@@ -193,11 +197,23 @@ button:focus-visible {
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--card-edge, var(--line));
   border-radius: 8px;
   box-shadow: var(--shadow);
   overflow: hidden;
   z-index: var(--z-card);
+}
+
+.card-claude {
+  --card-accent: var(--accent);
+  --card-soft: var(--accent-soft);
+  --card-edge: var(--accent-edge);
+}
+
+.card-codex {
+  --card-accent: var(--codex);
+  --card-soft: var(--codex-soft);
+  --card-edge: var(--codex-edge);
 }
 
 .card-head {
@@ -216,6 +232,7 @@ button:focus-visible {
 .card-name {
   font-weight: 600;
   letter-spacing: 0.01em;
+  color: var(--card-accent, var(--ink));
 }
 
 .card-task {
@@ -376,7 +393,7 @@ body.dragging { cursor: grabbing; }
 }
 
 .dot.idle { background: var(--ink-faint); }
-.dot.accent { background: var(--accent); }
+.dot.accent { background: var(--card-accent, var(--accent)); }
 .dot.ok { background: var(--ok); }
 .dot.danger { background: var(--danger); }
 
@@ -385,7 +402,7 @@ body.dragging { cursor: grabbing; }
 }
 
 @keyframes dot-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  0%, 100% { box-shadow: 0 0 0 0 var(--card-soft, var(--accent-soft)); }
   50% { box-shadow: 0 0 0 5px transparent; }
 }
 
