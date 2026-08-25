@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import { AgentCard, agentCommand } from '../lib/types';
 import { useStore } from '../lib/store';
 import { backend, bindTerminal, bindScreen } from '../lib/backend';
+import { keepScrollRegionHistory } from '../lib/scrollback';
 import { displayName } from '../lib/names';
 import { useDragResize } from './useDragResize';
 import UsageBar from './UsageBar';
@@ -91,6 +92,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
     term.open(termHost.current);
     termRef.current = term;
     fitRef.current = fit;
+    const scrollShim = keepScrollRegionHistory(term);
 
     let disposed = false;
     let deadNotified = false;
@@ -276,6 +278,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
       wheelEl.removeEventListener('paste', onNativePaste as EventListener, true);
       unbindScreen();
       unbind();
+      scrollShim?.dispose();
       term.dispose();
     };
   }, []);
