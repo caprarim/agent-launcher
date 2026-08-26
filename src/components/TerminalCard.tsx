@@ -3,9 +3,10 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { readText, writeText } from '@tauri-apps/plugin-clipboard-manager';
 import '@xterm/xterm/css/xterm.css';
-import { AgentCard, agentCommand } from '../lib/types';
+import { AGENT_LABELS, AgentCard, AgentType, agentCommand } from '../lib/types';
 import { useStore } from '../lib/store';
 import { backend, bindTerminal, bindScreen } from '../lib/backend';
+import { primeAndTask } from '../lib/orchestrator';
 import { keepScrollRegionHistory } from '../lib/scrollback';
 import { displayName } from '../lib/names';
 import { useDragResize } from './useDragResize';
@@ -28,6 +29,17 @@ function reclaimWindowFocus() {
   void backend.focusMain();
 }
 
+function replacementPrompt(agent: AgentCard, nextType: AgentType, transcript: string): string {
+  const context = transcript.replace(/\u0000/g, '').trim().slice(-12000);
+  const task = agent.taskLabel.trim();
+  return [
+    `You are replacing a ${AGENT_LABELS[agent.type]} agent with ${AGENT_LABELS[nextType]} in the same project folder.`,
+    'Continue the work it was doing. Inspect the current worktree first, preserve its changes, do not repeat completed work, and proceed from the latest state.',
+    task ? `Current task: ${task}.` : '',
+    context ? `Outgoing terminal context:\n${context}` : 'No terminal transcript was available, so infer the active work from the current worktree.',
+  ].filter(Boolean).join('\n\n');
+}
+
 export default function TerminalCard({ agent, hidden = false }: { agent: AgentCard; hidden?: boolean }) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const termHost = useRef<HTMLDivElement | null>(null);
@@ -36,6 +48,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
   const created = useRef(false);
   const gotData = useRef(false);
   const [active, setActive] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const activeTimer = useRef<number | undefined>(undefined);
 
   const updateAgent = useStore((s) => s.updateAgent);
@@ -72,6 +85,33 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
     if (agent.expanded || focused) return;
     bringToFront(agent.id);
     startDrag(e, mode);
+  };
+
+  const replaceAgent = async () => {
+    if (replacing) return;
+    setReplacing(true);
+    const current = useStore.getState().agents.find((a) => a.id === agent.id);
+    if (!current) {
+      setReplacing(false);
+      return;
+    }
+    const nextType: AgentType = current.type === 'claude' ? 'codex' : 'claude';
+    const transcript = await backend.ptyOutput(current.id, 16000).catch(() => current.summary || '');
+    const prompt = replacementPrompt(current, nextType, transcript);
+    await backend.ptyKill(current.id).catch(() => {});
+    const store = useStore.getState();
+    const latest = store.agents.find((a) => a.id === current.id);
+    if (!latest) return;
+    const workspace = store.workspaces.find((w) => w.id === latest.workspaceId);
+    store.updateAgent(latest.id, {
+      type: nextType,
+      epoch: latest.epoch + 1,
+      status: 'starting',
+      lastLine: '',
+      summary: '',
+      accountId: workspace?.accountId || 'default',
+    });
+    primeAndTask(latest.id, prompt);
   };
 
   useEffect(() => {
@@ -308,6 +348,14 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
         <span className="card-name" onPointerDown={(e) => beginDrag(e, 'move')}>{displayName(agent.name)}</span>
         {agent.taskLabel && <span className="card-task" onPointerDown={(e) => beginDrag(e, 'move')}>{agent.taskLabel}</span>}
         <span className="card-type" onPointerDown={(e) => beginDrag(e, 'move')}>{agent.type}</span>
+        <button
+          className="card-btn replace-btn"
+          title={`Replace with ${AGENT_LABELS[agent.type === 'claude' ? 'codex' : 'claude']} and continue the current work`}
+          onClick={() => void replaceAgent()}
+          disabled={replacing}
+        >
+          Replace
+        </button>
         {focused ? (
           <>
             <span className="focus-tag">Focus Mode</span>

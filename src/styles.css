@@ -271,6 +271,27 @@ button:focus-visible {
   background: var(--surface);
 }
 
+.replace-btn {
+  width: auto;
+  padding: 0 8px;
+  border: 1px solid var(--card-edge);
+  color: var(--card-accent);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.replace-btn:hover {
+  color: var(--ink);
+  border-color: var(--card-accent);
+  background: var(--card-soft);
+}
+
+.replace-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .card-body {
   flex: 1;
   min-height: 0;
