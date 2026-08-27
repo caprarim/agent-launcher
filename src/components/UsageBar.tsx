@@ -42,7 +42,15 @@ function Meter({ label, win, note }: { label: string; win: UsageWindow | null; n
   );
 }
 
-export default function UsageBar({ agentId, configDir }: { agentId: string; configDir?: string }) {
+export default function UsageBar({
+  agentId,
+  configDir,
+  kind = 'claude',
+}: {
+  agentId: string;
+  configDir?: string;
+  kind?: 'claude' | 'codex';
+}) {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [failed, setFailed] = useState<Usage | null>(null);
 
@@ -51,7 +59,8 @@ export default function UsageBar({ agentId, configDir }: { agentId: string; conf
     let timer = 0;
 
     const load = async () => {
-      const next = await backend.usageGet(agentId, configDir).catch(() => null);
+      const pending = kind === 'codex' ? backend.codexUsageGet() : backend.usageGet(agentId, configDir);
+      const next = await pending.catch(() => null);
       if (!alive) return;
       const ok = !!next && (!!next.session || !!next.week);
       if (next && ok) setUsage(next);
@@ -65,7 +74,7 @@ export default function UsageBar({ agentId, configDir }: { agentId: string; conf
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [agentId, configDir]);
+  }, [agentId, configDir, kind]);
 
   if (!usage) {
     const why = failed
@@ -83,7 +92,7 @@ export default function UsageBar({ agentId, configDir }: { agentId: string; conf
   return (
     <div className="usage-bar">
       {note && <span className="usage-note" title={usage.error || note}>{note}</span>}
-      <Meter label="Session" win={usage.session} note={note} />
+      <Meter label={kind === 'codex' ? '5h' : 'Session'} win={usage.session} note={note} />
       <Meter label="Week" win={usage.week} note={note} />
     </div>
   );

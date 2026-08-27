@@ -49,6 +49,9 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
   const gotData = useRef(false);
   const [active, setActive] = useState(false);
   const [replacing, setReplacing] = useState(false);
+  const [statusUsage, setStatusUsage] = useState(false);
+  const statusUsageRef = useRef(false);
+  const typedLine = useRef('');
   const activeTimer = useRef<number | undefined>(undefined);
 
   const updateAgent = useStore((s) => s.updateAgent);
@@ -230,8 +233,32 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
       return lines.join('\n');
     });
 
+    const showStatusUsage = () => {
+      if (statusUsageRef.current) return;
+      statusUsageRef.current = true;
+      setStatusUsage(true);
+    };
+
+    const trackTyping = (chunk: string) => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n') {
+          if (typedLine.current.trim().toLowerCase() === '/status') showStatusUsage();
+          typedLine.current = '';
+        } else if (ch === '\x7f' || ch === '\b') {
+          typedLine.current = typedLine.current.slice(0, -1);
+        } else if (ch === '\x1b' || ch === '\x03' || ch === '\x15') {
+          typedLine.current = '';
+        } else if (ch >= ' ') {
+          typedLine.current += ch;
+        }
+      }
+    };
+
     const unbind = bindTerminal(agent.id, (data) => {
       gotData.current = true;
+      if (agent.type === 'codex' && !statusUsageRef.current && data.includes('5h limit')) {
+        showStatusUsage();
+      }
       term.write(data);
       setActive(true);
       window.clearTimeout(activeTimer.current);
@@ -239,6 +266,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
     });
 
     term.onData((d) => {
+      if (agent.type === 'codex' && !statusUsageRef.current) trackTyping(d);
       if (d.includes('\r') || d.includes('\n')) {
         const cur = useStore.getState().agents.find((a) => a.id === agent.id);
         if (cur && cur.status !== 'starting' && cur.status !== 'exited') {
@@ -400,6 +428,7 @@ export default function TerminalCard({ agent, hidden = false }: { agent: AgentCa
         <div className="card-lastline" title={agent.lastLine}>{agent.lastLine}</div>
       )}
       {!agent.minimized && agent.type === 'claude' && <UsageBar agentId={agent.id} configDir={configDir} />}
+      {!agent.minimized && agent.type === 'codex' && statusUsage && <UsageBar agentId={agent.id} kind="codex" />}
       {!agent.expanded && !agent.minimized && !focused && (
         <>
           <div className="card-edge-r" onPointerDown={(e) => beginDrag(e, 'resize-r')} />

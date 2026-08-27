@@ -1,5 +1,6 @@
 mod accounts;
 mod browser;
+mod codex_usage;
 mod control;
 mod costs;
 mod files;
@@ -117,6 +118,7 @@ pub fn run() {
             update::update_check,
             update::update_apply,
             usage::usage_get,
+            codex_usage::codex_usage_get,
         ])
         .setup(move |app| {
             speech::set_app(app.handle().clone());

@@ -61,6 +61,7 @@ export const backend = {
   updateCheck: () => invoke<UpdateInfo>('update_check'),
   updateApply: () => invoke<void>('update_apply'),
   usageGet: (id?: string, configDir?: string) => invoke<Usage>('usage_get', { id, configDir }),
+  codexUsageGet: () => invoke<Usage>('codex_usage_get'),
 };
 
 export interface UsageWindow {
