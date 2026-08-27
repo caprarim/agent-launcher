@@ -338,7 +338,7 @@ button:focus-visible {
 .usage-fill {
   display: block;
   height: 100%;
-  background: var(--accent);
+  background: var(--card-accent, var(--accent));
 }
 
 .usage-fill.hot { background: var(--danger); }
